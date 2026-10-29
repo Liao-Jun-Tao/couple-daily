@@ -1,15 +1,13 @@
 openapi: 3.0.3
 info:
   title: couple-daily API
-  version: 0.1.0
+  version: 0.1.0-draft
   description: |
     情侣日常 App（couple-daily）后端接口契约。
     Flutter 双端；双人邀请制唯一 space；P0 + P1 字段预留。
-    Auth 已锁定：邮箱 + 密码注册登录（`/auth/register`、`/auth/login`）。
-    手机号验证码不上首版，本契约不包含 `/auth/otp/*`。
-    已锁规则：仅作者可删、发帖禁止双空、发起邀请时建 space（member_count=1）、
-    邀请码 6 位 / 24h / 一码一用、多图 ≤9 且单张 ≤10MB、定位默认 exact、
-    打卡可手填店名、纪念日默认当天本地 09:00、推送 APNs + FCM。
+    Auth（已确认）：邮箱+密码注册/登录；邀请码配对。手机号验证码不上首版（P1）。
+    已锁：仅作者可删、发帖禁止双空、发起邀请时建 space、APNs+FCM、
+    邀请码 6 位/24h/一码一用、多图≤9/≤10MB、定位默认 exact、手填店名、纪念日当天本地 09:00。
     时间均为 RFC3339 UTC；ID 为 UUID string。
   contact:
     name: couple-daily backend
@@ -34,7 +32,9 @@ security:
   - bearerAuth: []
 
 paths:
-  # Auth 已锁定：邮箱 + 密码。手机号验证码不上首版。
+  # ---------------------------------------------------------------------------
+  # Auth（已确认）：邮箱 + 密码；手机号验证码（短信 OTP）为 P1，不上首版
+  # ---------------------------------------------------------------------------
 
   /auth/register:
     post:
@@ -42,9 +42,8 @@ paths:
       security: []
       summary: 邮箱密码注册
       description: |
-        使用邮箱、密码与 display_name 创建用户，并返回 access / refresh token。
-        密码长度 8–128。邮箱已存在时返回 409 EMAIL_TAKEN。
-        首版不提供手机号验证码。
+        邮箱+密码注册并返回 JWT。邮箱唯一；密码 ≥8 字符。
+        P1 备注：手机号验证码登录不上首版。
       operationId: authRegister
       requestBody:
         required: true
@@ -69,9 +68,7 @@ paths:
       tags: [Auth]
       security: []
       summary: 邮箱密码登录
-      description: |
-        校验邮箱与密码，成功返回 JWT。
-        密码错误与邮箱不存在均返回 401，避免枚举账号是否存在。
+      description: 邮箱+密码登录并返回 JWT。
       operationId: authLogin
       requestBody:
         required: true
@@ -96,7 +93,7 @@ paths:
       tags: [Auth]
       security: []
       summary: 刷新 access token
-      description: 用 refresh_token 换发新的 access / refresh token。无效或已撤销返回 401。
+      description: 使用 refresh_token 换取新的 access/refresh token 对。
       operationId: authRefresh
       requestBody:
         required: true
@@ -118,9 +115,7 @@ paths:
     get:
       tags: [Auth]
       summary: 当前用户与配对状态
-      description: |
-        返回当前用户与配对状态。`user.email` 为登录邮箱，必填。
-        首版用户资料不含手机号。
+      description: 返回当前登录用户（含 email）及配对状态。
       operationId: authMe
       responses:
         '200':
@@ -751,7 +746,7 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     ErrorConflict:
-      description: 冲突（已配对 / space 已满 / 邮箱已注册）
+      description: 冲突（已配对 / space 已满 / 邮箱已注册等）
       content:
         application/json:
           schema:
@@ -787,7 +782,7 @@ components:
 
     RegisterRequest:
       type: object
-      description: 邮箱密码注册。手机号验证码不上首版。
+      description: 邮箱密码注册
       required: [email, password, display_name]
       properties:
         email:
@@ -804,7 +799,7 @@ components:
 
     LoginRequest:
       type: object
-      description: 邮箱密码登录。
+      description: 邮箱密码登录
       required: [email, password]
       properties:
         email:
@@ -840,7 +835,7 @@ components:
 
     UserPublic:
       type: object
-      description: 对外用户资料。登录标识为邮箱；首版不返回、不存储手机号。
+      description: 公开用户信息；登录账号为 email（手机号 OTP 为 P1，本契约不含 phone）。
       required: [id, email, display_name, created_at]
       properties:
         id:
@@ -848,7 +843,6 @@ components:
         email:
           type: string
           format: email
-          description: 登录邮箱
         display_name:
           type: string
         avatar_url:
