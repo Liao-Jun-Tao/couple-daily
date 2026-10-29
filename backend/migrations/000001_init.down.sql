@@ -1,0 +1,16 @@
+DROP TABLE IF EXISTS device_tokens;
+DROP TABLE IF EXISTS anniversaries;
+DROP TABLE IF EXISTS restaurant_favorites;
+DROP TABLE IF EXISTS restaurant_checkins;
+DROP TABLE IF EXISTS comments;
+DROP TABLE IF EXISTS likes;
+DROP TABLE IF EXISTS post_media;
+DROP TABLE IF EXISTS posts;
+ALTER TABLE IF EXISTS users DROP CONSTRAINT IF EXISTS users_avatar_media_id_fkey;
+DROP TABLE IF EXISTS media_assets;
+DROP TABLE IF EXISTS invite_codes;
+DROP TABLE IF EXISTS space_members;
+DROP TABLE IF EXISTS couple_spaces;
+DROP TABLE IF EXISTS refresh_tokens;
+DROP TABLE IF EXISTS users;
+DROP EXTENSION IF EXISTS citext;
