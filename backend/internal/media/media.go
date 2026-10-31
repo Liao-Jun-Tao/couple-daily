@@ -4,9 +4,6 @@ package media
 
 import (
 	"errors"
-
-	"github.com/Liao-Jun-Tao/couple-daily/internal/httpapi"
-	"github.com/go-chi/chi/v5"
 )
 
 const MaxImageBytes int64 = 10 * 1024 * 1024
@@ -22,11 +19,6 @@ var (
 	ErrUnsupportedType = errors.New("content_type must be image/jpeg, image/png, image/heic, or image/webp")
 	ErrInvalidSize     = errors.New("byte_size must be between 1 and 10485760")
 )
-
-// Mount registers the upload-intent route. The handler returns 501 until implemented.
-func Mount(r chi.Router) {
-	r.Post("/media/uploads", httpapi.NotImplemented)
-}
 
 // ValidateUpload checks the presign request against the locked media limits.
 func ValidateUpload(contentType string, byteSize int64) error {

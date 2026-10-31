@@ -5,11 +5,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Liao-Jun-Tao/couple-daily/internal/app"
 )
 
 func TestHealthz(t *testing.T) {
 	rr := httptest.NewRecorder()
-	newRouter().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	app.UnconnectedRouter().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d", rr.Code)
 	}
@@ -23,55 +25,57 @@ func TestContractRoutesAreMounted(t *testing.T) {
 	routes := []struct {
 		method string
 		path   string
+		public bool
 	}{
-		{http.MethodPost, "/v1/auth/register"},
-		{http.MethodPost, "/v1/auth/login"},
-		{http.MethodPost, "/v1/auth/refresh"},
-		{http.MethodGet, "/v1/auth/me"},
-		{http.MethodPost, "/v1/pairing/invites"},
-		{http.MethodPost, "/v1/pairing/invites/accept"},
-		{http.MethodGet, "/v1/pairing/space"},
-		{http.MethodPost, "/v1/media/uploads"},
-		{http.MethodGet, "/v1/posts"},
-		{http.MethodPost, "/v1/posts"},
-		{http.MethodGet, "/v1/posts/" + id},
-		{http.MethodPatch, "/v1/posts/" + id},
-		{http.MethodDelete, "/v1/posts/" + id},
-		{http.MethodPut, "/v1/posts/" + id + "/likes"},
-		{http.MethodDelete, "/v1/posts/" + id + "/likes"},
-		{http.MethodGet, "/v1/posts/" + id + "/comments"},
-		{http.MethodPost, "/v1/posts/" + id + "/comments"},
-		{http.MethodDelete, "/v1/comments/" + id},
-		{http.MethodGet, "/v1/checkins"},
-		{http.MethodPost, "/v1/checkins"},
-		{http.MethodDelete, "/v1/checkins/" + id},
-		{http.MethodGet, "/v1/favorites"},
-		{http.MethodPost, "/v1/favorites"},
-		{http.MethodDelete, "/v1/favorites/" + id},
-		{http.MethodGet, "/v1/anniversaries"},
-		{http.MethodPost, "/v1/anniversaries"},
-		{http.MethodPatch, "/v1/anniversaries/" + id},
-		{http.MethodDelete, "/v1/anniversaries/" + id},
-		{http.MethodPost, "/v1/devices"},
-		{http.MethodDelete, "/v1/devices"},
+		{http.MethodPost, "/v1/auth/register", true},
+		{http.MethodPost, "/v1/auth/login", true},
+		{http.MethodPost, "/v1/auth/refresh", false},
+		{http.MethodGet, "/v1/auth/me", false},
+		{http.MethodPost, "/v1/pairing/invites", false},
+		{http.MethodPost, "/v1/pairing/invites/accept", false},
+		{http.MethodGet, "/v1/pairing/space", false},
+		{http.MethodPost, "/v1/media/uploads", false},
+		{http.MethodGet, "/v1/posts", false},
+		{http.MethodPost, "/v1/posts", false},
+		{http.MethodGet, "/v1/posts/" + id, false},
+		{http.MethodPatch, "/v1/posts/" + id, false},
+		{http.MethodDelete, "/v1/posts/" + id, false},
+		{http.MethodPut, "/v1/posts/" + id + "/likes", false},
+		{http.MethodDelete, "/v1/posts/" + id + "/likes", false},
+		{http.MethodGet, "/v1/posts/" + id + "/comments", false},
+		{http.MethodPost, "/v1/posts/" + id + "/comments", false},
+		{http.MethodDelete, "/v1/comments/" + id, false},
+		{http.MethodGet, "/v1/checkins", false},
+		{http.MethodPost, "/v1/checkins", false},
+		{http.MethodDelete, "/v1/checkins/" + id, false},
+		{http.MethodGet, "/v1/favorites", false},
+		{http.MethodPost, "/v1/favorites", false},
+		{http.MethodDelete, "/v1/favorites/" + id, false},
+		{http.MethodGet, "/v1/anniversaries", false},
+		{http.MethodPost, "/v1/anniversaries", false},
+		{http.MethodPatch, "/v1/anniversaries/" + id, false},
+		{http.MethodDelete, "/v1/anniversaries/" + id, false},
+		{http.MethodPost, "/v1/devices", false},
+		{http.MethodDelete, "/v1/devices", false},
 	}
 
-	h := newRouter()
+	h := app.UnconnectedRouter()
 	for _, route := range routes {
 		rr := httptest.NewRecorder()
 		h.ServeHTTP(rr, httptest.NewRequest(route.method, route.path, nil))
-		if rr.Code != http.StatusNotImplemented {
-			t.Errorf("%s %s: status %d body %s", route.method, route.path, rr.Code, rr.Body.String())
+		want := http.StatusUnauthorized
+		if route.public {
+			want = http.StatusBadRequest
 		}
-		if !strings.Contains(rr.Body.String(), `"code":"NOT_IMPLEMENTED"`) {
-			t.Errorf("%s %s: body %s", route.method, route.path, rr.Body.String())
+		if rr.Code != want {
+			t.Errorf("%s %s: status %d body %s", route.method, route.path, rr.Code, rr.Body.String())
 		}
 	}
 }
 
 func TestUnknownRoute(t *testing.T) {
 	rr := httptest.NewRecorder()
-	newRouter().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/no-such-route", nil))
+	app.UnconnectedRouter().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/no-such-route", nil))
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status %d", rr.Code)
 	}

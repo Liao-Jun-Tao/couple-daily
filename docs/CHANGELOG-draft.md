@@ -46,4 +46,4 @@
 ## 下一步
 
 1. 脚手架已落在 `backend/`（Go + chi）。`apps/mobile/` 留给 Flutter，本变更不创建该目录。
-2. 实现 P0：Auth → Pairing → Posts/Media → Likes/Comments → Checkins → Anniversaries/Devices。`/v1` handler 目前返回 `501`。  
+2. P0 HTTP 已按契约实现（Auth、Pairing、Posts/Media、赞评、打卡、纪念日、Devices）。APNs 与 FCM 在凭证为空时 stub 发送，`POST /devices` 仍登记 ios / android token。`apps/mobile/` 留给 Flutter。  

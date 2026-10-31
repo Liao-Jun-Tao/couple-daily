@@ -6,9 +6,6 @@ import (
 	"errors"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/Liao-Jun-Tao/couple-daily/internal/httpapi"
-	"github.com/go-chi/chi/v5"
 )
 
 const (
@@ -24,14 +21,6 @@ var (
 	ErrInvalidPassword    = errors.New("password must be 8 to 128 characters")
 	ErrInvalidDisplayName = errors.New("display_name must be 1 to 64 characters")
 )
-
-// Mount registers the locked auth routes. Handlers return 501 until implemented.
-func Mount(r chi.Router) {
-	r.Post("/auth/register", httpapi.NotImplemented)
-	r.Post("/auth/login", httpapi.NotImplemented)
-	r.Post("/auth/refresh", httpapi.NotImplemented)
-	r.Get("/auth/me", httpapi.NotImplemented)
-}
 
 // ValidateRegister checks a register request and returns the canonical email
 // plus the trimmed display name.
