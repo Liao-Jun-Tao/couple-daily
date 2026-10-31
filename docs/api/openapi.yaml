@@ -8,6 +8,10 @@ info:
     Auth（已确认）：邮箱+密码注册/登录；邀请码配对。手机号验证码不上首版（P1）。
     已锁：仅作者可删、发帖禁止双空、发起邀请时建 space、APNs+FCM、
     邀请码 6 位/24h/一码一用、多图≤9/≤10MB、定位默认 exact、手填店名、纪念日当天本地 09:00。
+    纪念日推送没有单独的公开发送接口：服务端按纪念日的 timezone + remind_local_time
+    （默认 Asia/Shanghai 09:00）给该 space 双方已登记的 device token 投递。
+    iOS（platform=ios）走 APNs，Android（platform=android）走 FCM，两条通道都在契约内。
+    客户端应解析的通知形状见 AnniversaryPush。系统通知开关是客户端职责，不进入本 API。
     时间均为 RFC3339 UTC；ID 为 UUID string。
   contact:
     name: couple-daily backend
@@ -26,7 +30,19 @@ tags:
   - name: Checkins
   - name: Favorites
   - name: Anniversaries
+    description: |
+      纪念日属于当前 space，双方都能列出。创建后默认开启提醒：
+      周年 recurrence=yearly，当天（remind_days_before=0），
+      本地 09:00（remind_local_time），时区 Asia/Shanghai。
+      推送时刻用纪念日上的 timezone，不是每个成员设备各自的时区；双方同一时刻触发。
+      仅创建者可删除。提醒投递见 AnniversaryPush，由进程内 worker 异步发送，没有对应的 HTTP 发送接口。
   - name: Devices
+    description: |
+      登记或注销当前用户的推送 token。platform 保持 ios | android（与现有客户端兼容）：
+      ios 的 token 走 APNs，android 的 token 走 FCM。产品同时覆盖两条通道。
+      本 API 不读取系统通知权限。用户拒绝 OS 权限时，只要客户端仍提交合法 platform+token，
+      登记必须成功（200）；没有 token 时客户端不调用本接口即可。不得因「通知未开启」返回 4xx。
+      未配对也可以登记。真正发送只投给纪念日所属 space 的成员 token。
 
 security:
   - bearerAuth: []
@@ -567,6 +583,9 @@ paths:
     get:
       tags: [Anniversaries]
       summary: 纪念日列表
+      description: |
+        当前 space 双方看到同一份列表（名称、日期、提醒字段）。
+        未配对返回 403，code=NOT_PAIRED。
       operationId: listAnniversaries
       parameters:
         - $ref: '#/components/parameters/Limit'
@@ -584,6 +603,17 @@ paths:
     post:
       tags: [Anniversaries]
       summary: 创建纪念日
+      description: |
+        必填 title、event_date。省略提醒字段时服务端写入锁定默认值，响应里会带回：
+        remind=true，remind_days_before=0（当天），remind_local_time="09:00"，
+        timezone="Asia/Shanghai"，recurrence=yearly。
+        推送日 = 该周年月-日（once 仅 event_date 当年）减去 remind_days_before，
+        时刻为 timezone 下的 remind_local_time。2 月 29 日在非闰年夹到该月最后一天。
+        remind=false 时不推送。双方成员各自已登记的 ios/android token 都会收到一条 AnniversaryPush。
+        没有 token 的成员被跳过，不报错。
+        非法提醒字段返回 400，code=VALIDATION_ERROR
+        （例如 "remind_local_time is invalid"、"timezone is invalid"、"invalid anniversary reminder"、
+        "event_date must be YYYY-MM-DD"）。
       operationId: createAnniversary
       requestBody:
         required: true
@@ -614,6 +644,10 @@ paths:
     patch:
       tags: [Anniversaries]
       summary: 更新纪念日 / 提醒配置
+      description: |
+        space 内任一成员可改标题、日期和提醒字段。省略的字段保持原值。
+        把 remind_local_time 改成空串，或 timezone 不合法，返回 400 VALIDATION_ERROR。
+        remind_days_before 允许 0–30。仅创建者可删除，更新不要求是创建者。
       operationId: updateAnniversary
       requestBody:
         required: true
@@ -638,7 +672,9 @@ paths:
     delete:
       tags: [Anniversaries]
       summary: 删除纪念日
-      description: 仅作者可删（骏涛已确认）。
+      description: |
+        仅创建者可删。另一名成员删除返回 403，code=FORBIDDEN（message 为 only the author can do that）。
+        创建者删除返回 204。已删除的纪念日不再参与提醒扫描。
       operationId: deleteAnniversary
       responses:
         '204':
@@ -655,8 +691,15 @@ paths:
       tags: [Devices]
       summary: 登记推送 device token（APNs / FCM）
       description: |
-        API 只负责 upsert 登记 token；不因用户未开系统通知而失败。
-        iOS 用 APNs token，Android 用 FCM token。未开通知时客户端不崩溃，可进 App 做 in-app 提示。
+        按 (当前用户, token) upsert。同一用户可登记多台设备；再次提交同一 token 会刷新 platform 与 last_seen_at。
+        platform 大小写不敏感，存成小写 ios 或 android。token 去掉首尾空白后长度 1–512。
+        通道：ios token 只走 APNs；android token 只走 FCM。不要把 platform 改成 apns/fcm，现有客户端传 ios/android。
+        请求体没有「系统通知是否允许」字段。用户在系统里关闭通知时：
+        客户端拿到 token 仍应调用本接口，服务端返回 200；客户端拿不到 token 则不要调用。
+        服务端不因 OS 权限拒绝登记，也不在这里崩溃。进 App 后的权限说明文案由客户端负责。
+        不要求已配对。纪念日触发时，只向该 space 两名成员名下的 token 发送 AnniversaryPush。
+        本地未配置 APNS_* / FCM_* 时登记仍然成功，真正发送记 stub 日志（见 docs/self-test.md）。
+        没有公开的「立即推送」调试接口；本地用纪念日的 remind_local_time 对准当前分钟，等进程内 worker。
       operationId: registerDevice
       requestBody:
         required: true
@@ -666,18 +709,47 @@ paths:
               $ref: '#/components/schemas/RegisterDeviceRequest'
       responses:
         '200':
-          description: 已登记（upsert）
+          description: |
+            已登记（upsert）。与系统通知开关无关：权限关闭但 token 合法时同样 200。
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeviceToken'
         '400':
-          $ref: '#/components/responses/ErrorBadRequest'
+          description: |
+            platform 或 token 非法。code 固定为 VALIDATION_ERROR。
+            message 为下列之一：invalid JSON body；platform must be ios or android；
+            token must be 1 to 512 characters。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                badPlatform:
+                  summary: platform 不是 ios 或 android
+                  value:
+                    code: VALIDATION_ERROR
+                    message: platform must be ios or android
+                badToken:
+                  summary: token 为空或超过 512 字符
+                  value:
+                    code: VALIDATION_ERROR
+                    message: token must be 1 to 512 characters
         '401':
-          $ref: '#/components/responses/ErrorUnauthorized'
+          description: 未登录。code=UNAUTHORIZED。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: UNAUTHORIZED
+                message: missing or invalid access token
     delete:
       tags: [Devices]
       summary: 注销推送 device token
+      description: |
+        只删除当前用户名下与 body.token 完全匹配的一行。token 不存在也返回 204，方便客户端在登出时幂等调用。
+        不能注销别人的 token。注销后该设备不再接收纪念日推送。
       operationId: unregisterDevice
       requestBody:
         required: true
@@ -687,9 +759,26 @@ paths:
               $ref: '#/components/schemas/UnregisterDeviceRequest'
       responses:
         '204':
-          description: 已注销
+          description: 已注销（token 本来就不存在也是 204）
+        '400':
+          description: |
+            缺少 token 或 JSON 非法。code=VALIDATION_ERROR，message 为 token is required 或 invalid JSON body。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: VALIDATION_ERROR
+                message: token is required
         '401':
-          $ref: '#/components/responses/ErrorUnauthorized'
+          description: 未登录。code=UNAUTHORIZED。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: UNAUTHORIZED
+                message: missing or invalid access token
 
 components:
   securitySchemes:
@@ -1339,21 +1428,29 @@ components:
         remind:
           type: boolean
           default: true
+          description: |
+            省略时为 true。false 时双方都不会收到 AnniversaryPush。
         remind_days_before:
           type: integer
           minimum: 0
           maximum: 30
           default: 0
-          description: 0=当天
+          description: |
+            相对周年月-日提前的天数。0（默认）= 纪念日当天。
+            产品验收的 P0 路径是当天本地 09:00；本字段保持兼容，供提前 1–30 天。
         remind_local_time:
           type: string
           pattern: '^\d{2}:\d{2}$'
           default: "09:00"
-          description: 本地提醒时刻；默认当天 09:00
+          description: |
+            纪念日 timezone 下的墙钟时间，HH:MM，24 小时制。省略时为 09:00。
+            双方都按这个时刻推送，不按各成员手机的系统时区。
         timezone:
           type: string
           default: Asia/Shanghai
-          description: IANA 时区，用于换算推送
+          description: |
+            IANA 时区名。省略时为 Asia/Shanghai。
+            推送换算只用这一列，没有单独的成员时区。必须能被服务端 time.LoadLocation 解析。
 
     UpdateAnniversaryRequest:
       type: object
@@ -1370,15 +1467,19 @@ components:
           enum: [yearly, once]
         remind:
           type: boolean
+          description: 传 false 关闭后续 AnniversaryPush；不传则保持原值。
         remind_days_before:
           type: integer
           minimum: 0
           maximum: 30
+          description: 0–30。0 表示周年当天。
         remind_local_time:
           type: string
           pattern: '^\d{2}:\d{2}$'
+          description: HH:MM。产品默认 09:00。空串返回 400。
         timezone:
           type: string
+          description: IANA。空串或无法解析返回 400。默认仍是 Asia/Shanghai。
 
     Anniversary:
       type: object
@@ -1412,14 +1513,20 @@ components:
           enum: [yearly, once]
         remind:
           type: boolean
+          description: 响应总会带上。新建且请求省略时为 true。
         remind_days_before:
           type: integer
+          description: 响应总会带上。新建且请求省略时为 0（当天）。
         remind_local_time:
           type: string
           example: "09:00"
+          description: |
+            响应总会带上，HH:MM。新建且请求省略时为 09:00。
+            这是双方推送使用的本地时刻，时区见 timezone。
         timezone:
           type: string
           example: Asia/Shanghai
+          description: 响应总会带上。新建且请求省略时为 Asia/Shanghai。
         created_at:
           $ref: '#/components/schemas/DateTime'
         updated_at:
@@ -1439,15 +1546,21 @@ components:
 
     RegisterDeviceRequest:
       type: object
+      description: |
+        只登记 token。不接受通知权限字段；OS 关闭通知不是本接口的失败条件。
       required: [platform, token]
       properties:
         platform:
           type: string
           enum: [ios, android]
+          description: |
+            ios = APNs device token（iOS 主通道）。android = FCM registration token。
+            取值不是 apns/fcm，以免破坏已有客户端。服务端按此选择发送通道。
         token:
           type: string
           minLength: 1
           maxLength: 512
+          description: 去掉空白后 1–512 字符。内容不做 APNs/FCM 在线校验。
 
     UnregisterDeviceRequest:
       type: object
@@ -1465,7 +1578,113 @@ components:
         platform:
           type: string
           enum: [ios, android]
+          description: 规范化后的 ios 或 android。ios 对应 APNs，android 对应 FCM。
         token:
           type: string
         updated_at:
           $ref: '#/components/schemas/DateTime'
+
+    AnniversaryPush:
+      type: object
+      description: |
+        纪念日提醒的客户端可见通知。不是 HTTP 响应，也没有 POST /push 之类的公开接口。
+        进程内 worker 每分钟扫描 remind=true 且未删除的纪念日；当地时间落入
+        [remind_local_time, remind_local_time+2min) 时触发一次。同一纪念日同一次触发
+        在 48 小时内只投递一轮，然后扇出到该 space 两名成员的全部 device token。
+        接收人：space 两名成员中，device_tokens 里有行的每一台设备。没有 token 的成员跳过。
+        通道：platform=ios 用 APNs，platform=android 用 FCM。两条都要处理。
+        title 是纪念日标题。body 在 remind_days_before=0 时为今天是「{title}」，
+        大于 0 时为「{title}」还有 {n} 天（n 为提前天数）。
+        data 是客户端深链应识别的稳定键（FCM data 与 APNs 自定义字段的值都用字符串）。
+        当前 sender 已把 title/body 写入 APNs aps.alert 与 FCM notification
+        （APNs 另带 sound=default，FCM 另带 android.priority=HIGH）。
+        data 键是本契约锁定、客户端必须能解析的字段；sender 尚未附带 data 时，
+        客户端只展示 title/body，不得崩溃。本地无 APNS_* / FCM_* 凭证时不发网，
+        日志为 push stub: provider=apns|fcm token_len=… title=…（不打印 token 明文，也不打印 data）。
+        真机联调按下面的线路示例核对 data。系统通知被用户关掉时，OS 可能不展示，API 与 worker 仍按已登记 token 尝试发送。
+      required: [title, body, data]
+      properties:
+        title:
+          type: string
+          description: 纪念日 title。APNs 在 aps.alert.title，FCM 在 message.notification.title。
+          example: 在一起
+        body:
+          type: string
+          description: |
+            当天：今天是「在一起」。提前 n 天：「在一起」还有 n 天。
+            APNs 在 aps.alert.body，FCM 在 message.notification.body。
+          example: 今天是「在一起」
+        data:
+          $ref: '#/components/schemas/AnniversaryPushData'
+      example:
+        title: 在一起
+        body: 今天是「在一起」
+        data:
+          type: anniversary_reminder
+          anniversary_id: 550e8400-e29b-41d4-a716-446655440000
+          space_id: 550e8400-e29b-41d4-a716-446655440001
+          event_date: "2024-05-20"
+          remind_days_before: "0"
+
+    AnniversaryPushData:
+      type: object
+      description: |
+        两条通道共用的 data 字典。键名固定，值一律字符串（FCM data 不允许数字）。
+        APNs 里这些键与 aps 同级；FCM 里放在 message.data。
+      required: [type, anniversary_id, space_id, event_date, remind_days_before]
+      properties:
+        type:
+          type: string
+          enum: [anniversary_reminder]
+          description: 固定 anniversary_reminder，用来和以后的其它推送区分。
+        anniversary_id:
+          type: string
+          format: uuid
+        space_id:
+          type: string
+          format: uuid
+        event_date:
+          type: string
+          description: 纪念日 event_date，YYYY-MM-DD，不是实际触发日（提前量见 remind_days_before）。
+          example: "2024-05-20"
+        remind_days_before:
+          type: string
+          description: 十进制数字字符串。0 表示当天。
+          example: "0"
+
+    ApnsAnniversaryPush:
+      type: object
+      description: |
+        iOS 线路示例（APNs HTTP/2 body）。topic 为 APNS_BUNDLE_ID，push-type=alert，priority=10。
+        客户端从 userInfo / payload 读取 aps.alert 与同级 data 键。
+      example:
+        aps:
+          alert:
+            title: 在一起
+            body: 今天是「在一起」
+          sound: default
+        type: anniversary_reminder
+        anniversary_id: 550e8400-e29b-41d4-a716-446655440000
+        space_id: 550e8400-e29b-41d4-a716-446655440001
+        event_date: "2024-05-20"
+        remind_days_before: "0"
+
+    FcmAnniversaryPush:
+      type: object
+      description: |
+        Android 线路示例（FCM HTTP v1 messages:send 的 JSON）。
+        客户端从 RemoteMessage.notification 读取 title/body，从 RemoteMessage.data 读取 data 键。
+      example:
+        message:
+          token: "<android device token>"
+          notification:
+            title: 在一起
+            body: 今天是「在一起」
+          data:
+            type: anniversary_reminder
+            anniversary_id: 550e8400-e29b-41d4-a716-446655440000
+            space_id: 550e8400-e29b-41d4-a716-446655440001
+            event_date: "2024-05-20"
+            remind_days_before: "0"
+          android:
+            priority: HIGH

@@ -215,32 +215,164 @@ curl -sS -X DELETE "$BASE/checkins/$CK" -H "Authorization: Bearer $TOKEN_A"
 
 ---
 
-## 6. 纪念日 + 设备 token（推送调度草案期人工核对）
+## 6. 纪念日 + 设备 token + 本地 09:00 推送（APNs 与 FCM）
+
+推送没有公开 HTTP 发送接口，也没有 `POST /v1/dev/push/test`。API 进程内每分钟扫一次 `remind=true` 的纪念日，在纪念日 `timezone` 的 `remind_local_time` 起 2 分钟窗口内，向该 space 两名成员名下的**每一个**已登记 token 发一条。`platform=ios` 走 **APNs**，`platform=android` 走 **FCM**。两条通道都要测。时刻用纪念日上的时区（默认 `Asia/Shanghai` 的 09:00），不是每台手机自己的系统时区。
+
+系统通知关闭：请求体没有权限字段。客户端只要提交合法 `platform`+`token`，登记必须 `200`。拿不到 token 时不要调用登记。进 App 的权限文案是客户端的事，本接口不失败、进程不崩溃。
+
+凭证为空时不访问 Apple / Google，日志类似（不打印 token 明文）：
+
+```text
+push: apns configured=false fcm configured=false
+push stub: provider=apns token_len=17 title="今天也要在一起"
+push stub: provider=fcm token_len=16 title="今天也要在一起"
+```
+
+`provider=apns` 表示会发给 iOS token，`provider=fcm` 表示会发给 Android token。`token_len` 是登记字符串的字节长度（下面两个测试 token 分别是 17 和 16）。
+
+### 6.1 登记设备（含非法 platform / token）
+
+先完成第 1 节配对。未配对也可以登记，但下面的推送只投给 space 成员。
 
 ```bash
 curl -sS -X POST "$BASE/devices" \
   -H "Authorization: Bearer $TOKEN_A" -H 'Content-Type: application/json' \
-  -d '{"platform":"ios","token":"TEST_APNS_OR_FCM_TOKEN_A"}'
+  -d '{"platform":"ios","token":"TEST_APNS_TOKEN_A"}' | tee /tmp/dev_a.json
+
+curl -sS -X POST "$BASE/devices" \
+  -H "Authorization: Bearer $TOKEN_B" -H 'Content-Type: application/json' \
+  -d '{"platform":"android","token":"TEST_FCM_TOKEN_B"}' | tee /tmp/dev_b.json
+
+# 大小写与空白会被规范化
+curl -sS -X POST "$BASE/devices" \
+  -H "Authorization: Bearer $TOKEN_A" -H 'Content-Type: application/json' \
+  -d '{"platform":" IOS ","token":" TEST_APNS_TOKEN_A "}'
+```
+
+期望：两条均为 `200`；`platform` 分别为 `ios`、`android`；同一 token 再登记仍是 `200`（upsert）。这与系统通知开或关无关。
+
+```bash
+curl -sS -o /tmp/dev_bad_platform.json -w '%{http_code}\n' -X POST "$BASE/devices" \
+  -H "Authorization: Bearer $TOKEN_A" -H 'Content-Type: application/json' \
+  -d '{"platform":"apns","token":"TEST_APNS_TOKEN_A"}'
+cat /tmp/dev_bad_platform.json
+
+curl -sS -o /tmp/dev_bad_token.json -w '%{http_code}\n' -X POST "$BASE/devices" \
+  -H "Authorization: Bearer $TOKEN_A" -H 'Content-Type: application/json' \
+  -d '{"platform":"ios","token":"  "}'
+cat /tmp/dev_bad_token.json
+```
+
+期望：两处都是 `400`，`code=VALIDATION_ERROR`。`platform` 不是 `ios`/`android` 时 message 为 `platform must be ios or android`（不要传 `apns`/`fcm`）。token 空或超过 512 字符时 message 为 `token must be 1 to 512 characters`。
+
+### 6.2 默认提醒是当天本地 09:00；双方可见；只有创建者能删
+
+```bash
+curl -sS -X POST "$BASE/anniversaries" \
+  -H "Authorization: Bearer $TOKEN_A" -H 'Content-Type: application/json' \
+  -d '{"title":"在一起","event_date":"2024-05-20"}' | tee /tmp/ann.json
+ANN=$(jq -r .id /tmp/ann.json)
+
+curl -sS "$BASE/anniversaries" -H "Authorization: Bearer $TOKEN_B" | tee /tmp/ann_b.json
+```
+
+期望：`201`。省略提醒字段时响应仍是 `remind=true`、`remind_days_before=0`、`remind_local_time="09:00"`、`timezone="Asia/Shanghai"`、`recurrence=yearly`。B 的列表含同一 `id`、标题与日期。
+
+非创建者不能删；创建者可以删：
+
+```bash
+curl -sS -o /tmp/ann_forbid.json -w '%{http_code}\n' -X DELETE "$BASE/anniversaries/$ANN" \
+  -H "Authorization: Bearer $TOKEN_B"
+cat /tmp/ann_forbid.json
+
+curl -sS -o /dev/null -w '%{http_code}\n' -X DELETE "$BASE/anniversaries/$ANN" \
+  -H "Authorization: Bearer $TOKEN_A"
+```
+
+期望：B 为 `403`，`code=FORBIDDEN`；A 为 `204`。之后 B 的列表不再包含 `$ANN`。space 内另一名成员可以 `PATCH` 提醒字段（例如 `remind_days_before`），删除才限制为创建者。
+
+### 6.3 本地 dry-run：对准「现在」触发 stub，不必等到早上 9 点
+
+保持 `APNS_KEY_ID`、`APNS_TEAM_ID`、`APNS_BUNDLE_ID`、`APNS_KEY_PATH`、`FCM_PROJECT_ID`、`FCM_CREDENTIALS_PATH` 为空，重启或确认 API 已在跑，启动日志含 `push: apns configured=false fcm configured=false`。
+
+worker 约每 60 秒跳一次，**不会在进程启动的那一秒立刻扫**。窗口是当地 `remind_local_time` 起的 2 分钟。API 先跑起来，再把提醒时刻设成 Asia/Shanghai 的当前 `HH:MM`，然后盯日志最多约 2 分钟。没出现就再 PATCH 成新的当前分钟（新时刻是另一次触发，不受上一次 48 小时去重影响）。
+
+```bash
+TODAY=$(TZ=Asia/Shanghai date +%F)
+NOW=$(TZ=Asia/Shanghai date +%H:%M)
 
 curl -sS -X POST "$BASE/anniversaries" \
   -H "Authorization: Bearer $TOKEN_A" -H 'Content-Type: application/json' \
-  -d '{"title":"在一起","event_date":"2024-05-20","remind":true,"remind_days_before":0,"remind_local_time":"09:00","timezone":"Asia/Shanghai"}' \
-  | tee /tmp/ann.json
-ANN=$(jq -r .id /tmp/ann.json)
-
-curl -sS "$BASE/anniversaries" -H "Authorization: Bearer $TOKEN_B"
+  -d "{\"title\":\"今天也要在一起\",\"event_date\":\"$TODAY\",\"remind\":true,\"remind_days_before\":0,\"remind_local_time\":\"$NOW\",\"timezone\":\"Asia/Shanghai\"}" \
+  | tee /tmp/ann_today.json
+ANN_TODAY=$(jq -r .id /tmp/ann_today.json)
+echo "wait for stub log; fire minute=$NOW date=$TODAY id=$ANN_TODAY"
 ```
 
-期望：B 列表可见名称与日期；提醒字段默认当天本地 09:00。
+期望（API 标准输出，顺序不限）：
 
-草案期推送：确认 worker/cron 文档存在即可；实现后在「纪念日当天 09:00 Asia/Shanghai」查双方 device 是否收到一条推送。
+- `push stub: provider=apns token_len=17 title="今天也要在一起"`（A 的 iOS token `TEST_APNS_TOKEN_A` 长度为 17）
+- `push stub: provider=fcm token_len=16 title="今天也要在一起"`（B 的 Android token `TEST_FCM_TOKEN_B` 长度为 16）
+
+同一轮只应出现一次 apns、一次 fcm（每人一个 token 时）。没有登记 token 的成员不会有对应行，也不报错。`remind=false` 的纪念日没有 stub 行。
+
+客户端应解析的正文与 data（OpenAPI `AnniversaryPush` / `ApnsAnniversaryPush` / `FcmAnniversaryPush`）：
+
+| 字段 | 当天（remind_days_before=0） |
+|------|------------------------------|
+| title | 纪念日标题，例如 `今天也要在一起` |
+| body | `今天是「今天也要在一起」` |
+| data.type | `anniversary_reminder` |
+| data.anniversary_id | 纪念日 id |
+| data.space_id | space id |
+| data.event_date | `YYYY-MM-DD` |
+| data.remind_days_before | 字符串 `"0"`（提前 n 天则为 `"n"`，body 为 `「标题」还有 n 天`） |
+
+APNs：`aps.alert.title/body`，`aps.sound=default`，data 键与 `aps` 同级。FCM HTTP v1：`message.notification.title/body`，`message.data` 为上表，`message.android.priority=HIGH`。
+
+本地 stub **只打印 title**，不打印 body/data，也不发网。本步通过标准是两条 `push stub` 日志。data 键已在契约里锁定，供客户端先写解析；sender 还没附带 data 时，缺 data 只展示 title/body，App 不崩溃。真机在凭证配齐后按该 schema 核对报文。系统通知关闭时 OS 可能不展示，服务端仍会按 token 尝试（stub 下就是上面的日志）。
+
+去重：同一次触发（纪念日 id + 该次本地时刻）48 小时内只扇出一轮。窗口错过不会自动补发；把 `remind_local_time` 改到新的当前分钟再等下一跳。
+
+提前一天的可选核对：`event_date` 设为 Asia/Shanghai 的明天、`remind_days_before=1`、`remind_local_time` 设为当前分钟。stub 的 title 仍是标题；约定 body 为 `「标题」还有 1 天`。
+
+测完删除，避免下一分钟重复刷日志：
 
 ```bash
-curl -sS -X PATCH "$BASE/anniversaries/$ANN" \
+curl -sS -o /dev/null -w '%{http_code}\n' -X DELETE "$BASE/anniversaries/$ANN_TODAY" \
+  -H "Authorization: Bearer $TOKEN_A"
+curl -sS -o /dev/null -w '%{http_code}\n' -X DELETE "$BASE/devices" \
+  -H "Authorization: Bearer $TOKEN_A" -H 'Content-Type: application/json' \
+  -d '{"token":"TEST_APNS_TOKEN_A"}'
+curl -sS -o /dev/null -w '%{http_code}\n' -X DELETE "$BASE/devices" \
   -H "Authorization: Bearer $TOKEN_B" -H 'Content-Type: application/json' \
-  -d '{"remind_days_before":1}'
-curl -sS -X DELETE "$BASE/anniversaries/$ANN" -H "Authorization: Bearer $TOKEN_A"
+  -d '{"token":"TEST_FCM_TOKEN_B"}'
+# 再删一次同一 token：仍然 204
+curl -sS -o /dev/null -w '%{http_code}\n' -X DELETE "$BASE/devices" \
+  -H "Authorization: Bearer $TOKEN_A" -H 'Content-Type: application/json' \
+  -d '{"token":"TEST_APNS_TOKEN_A"}'
 ```
+
+期望：纪念日删除 `204`；注销 `204`；token 不存在也是 `204`。空 token 注销为 `400 VALIDATION_ERROR`。
+
+### 6.4 以后接真 APNs / FCM 时的环境变量（只写名字）
+
+留空即 stub。不要把密钥、p8、服务账号 JSON 写进仓库或本文。
+
+| 变量 | 用途 |
+|------|------|
+| `APNS_KEY_ID` | APNs Auth Key 的 Key ID |
+| `APNS_TEAM_ID` | Apple Team ID |
+| `APNS_BUNDLE_ID` | iOS bundle id，作为 `apns-topic` |
+| `APNS_KEY_PATH` | 本机 `.p8` 路径（文件不入库） |
+| `APNS_USE_SANDBOX` | `true` 时走 `api.sandbox.push.apple.com`，否则走生产 |
+| `FCM_PROJECT_ID` | Firebase 项目 id |
+| `FCM_CREDENTIALS_PATH` | 服务账号 JSON 路径（文件不入库） |
+| `APP_ENV` | 本地用 `local` 或 `dev`。与推送开关无关；空凭证即 stub |
+| `REDIS_URL` | 可选。可用时去重键为 `reminder:{anniversaryId}:{fireAt RFC3339}`，TTL 48h；Redis 不可用时退回进程内内存 |
+
+四项 APNs 都非空才发 APNs；`FCM_PROJECT_ID` 与 `FCM_CREDENTIALS_PATH` 都非空才发 FCM。只配一边时，另一边仍 stub。本 PR 不要求配真证书。
 
 ---
 
@@ -287,5 +419,5 @@ curl -sS -X POST "$BASE/auth/refresh" -H 'Content-Type: application/json' \
 | 3 | 定位可选；不选可发 | ☐ |
 | 4 | 赞/取消一致；评论见内容与作者 | ☐ |
 | 5 | 打卡名+时间双方可见 | ☐ |
-| 6 | 纪念日列表；提醒配置可写；设备可登记 | ☐ |
+| 6 | 纪念日双方可见；默认当天 09:00；仅创建者可删；ios→APNs、android→FCM；本地 stub 日志各一条；非法 token 400；关系统通知不影响登记 | ☐ |
 | 7 | P1 收藏双方一致；定位 visibility 双方一致 | ☐ |

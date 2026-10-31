@@ -231,7 +231,9 @@ P1 备注：若日后加手机号验证码，再增 `phone` 可空 UNIQUE + `otp
 
 索引：`(space_id, event_date)`；`(remind) WHERE remind=true AND deleted_at IS NULL`（worker 扫描）。
 
-推送调度（草案阶段）：服务端 cron/worker 按 `timezone` + `remind_local_time` + `remind_days_before` 换算下次触发 UTC，写入 `anniversary_reminder_jobs`（实现期可选表）或即时扫表；向该 space 双方 `device_tokens` 发推送。本契约只登记设备与 reminder 配置。
+推送调度：没有 `anniversary_reminder_jobs`，也没有 push outbox。API 进程内每分钟扫描 `remind=true AND deleted_at IS NULL` 的行（`backend/internal/push`）。触发条件是纪念日 `timezone` 的当地时间落在 `[remind_local_time, remind_local_time+2min)`。默认 `remind_local_time=09:00`、`timezone=Asia/Shanghai`、`remind_days_before=0`，即周年当天当地 09:00。双方用同一条纪念日时区，没有成员级时区列。`yearly` 按月-日重复，2 月 29 日在非闰年夹到该月最后一天；`once` 只在 `event_date` 的年份触发。
+
+扇出对象是该 `space_id` 下两名 `space_members` 的全部 `device_tokens`。`platform=ios` 走 APNs，`platform=android` 走 FCM。没有 token 的成员跳过。同一触发（纪念日 id + 该次本地时刻的 RFC3339）用 Redis 键 `reminder:{id}:{fireAt}`、TTL 48 小时只发一轮；Redis 不可用时用进程内存。去重键在发送前写入，失败不自动重试。凭证未配置时不发网，只打 `push stub: provider=apns|fcm …`。通知形状见 OpenAPI `AnniversaryPush`。
 
 ### device_tokens
 
@@ -245,11 +247,11 @@ P1 备注：若日后加手机号验证码，再增 `phone` 可空 UNIQUE + `otp
 | updated_at | timestamptz | NOT NULL | |
 | last_seen_at | timestamptz | NOT NULL | |
 
-约束：`UNIQUE(user_id, token)`。
+约束：`UNIQUE(user_id, token)`；`platform IN ('ios','android')`。没有「系统通知已授权」列。
 
 索引：`(user_id)`。
 
-推送通道：iOS **APNs**、Android **FCM**。API 只登记/注销 token；用户未开系统通知时登记仍成功，客户端不崩溃并可做 in-app 提示。
+推送通道：`ios` → **APNs**（iOS 主通道），`android` → **FCM**。HTTP 的 `platform` 不使用 `apns`/`fcm` 这两个值。API 只登记/注销 token，不在登记时访问苹果或 Google。用户关闭系统通知时登记仍返回成功（请求里没有权限位）；拿不到 token 则客户端不调用。进 App 的提示文案由客户端负责。注销只删当前用户的那一行，token 不存在也成功。
 
 ---
 
