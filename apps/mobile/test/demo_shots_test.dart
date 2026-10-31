@@ -132,4 +132,9 @@ class _DenyClient implements NotificationPermissionClient {
   Future<NotificationPermissionResult> request() async {
     return NotificationPermissionResult.denied;
   }
+
+  @override
+  Future<NotificationPermissionResult> status() async {
+    return NotificationPermissionResult.denied;
+  }
 }
