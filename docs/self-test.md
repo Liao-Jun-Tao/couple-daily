@@ -266,7 +266,7 @@ cat /tmp/dev_bad_token.json
 
 期望：两处都是 `400`，`code=VALIDATION_ERROR`。`platform` 不是 `ios`/`android` 时 message 为 `platform must be ios or android`（不要传 `apns`/`fcm`）。token 空或超过 512 字符时 message 为 `token must be 1 to 512 characters`。
 
-### 6.2 默认提醒是当天本地 09:00；双方可见；只有创建者能删
+### 6.2 默认提醒是当天本地 09:00；双方可见；只有创建者能改、能删
 
 ```bash
 curl -sS -X POST "$BASE/anniversaries" \
@@ -279,24 +279,39 @@ curl -sS "$BASE/anniversaries" -H "Authorization: Bearer $TOKEN_B" | tee /tmp/an
 
 期望：`201`。省略提醒字段时响应仍是 `remind=true`、`remind_days_before=0`、`remind_local_time="09:00"`、`timezone="Asia/Shanghai"`、`recurrence=yearly`。B 的列表含同一 `id`、标题与日期。
 
-非创建者不能删；创建者可以删：
+A 创建后，B（已配对、非创建者）改提醒或删除都是 `403`；A 自己可以改，也可以删。
 
 ```bash
+# 非创建者改提醒字段 → 403 FORBIDDEN，行保持原值
+curl -sS -o /tmp/ann_patch_forbid.json -w '%{http_code}\n' -X PATCH "$BASE/anniversaries/$ANN" \
+  -H "Authorization: Bearer $TOKEN_B" -H 'Content-Type: application/json' \
+  -d '{"title":"被改掉","remind":false,"remind_days_before":1,"remind_local_time":"10:00","timezone":"Asia/Tokyo"}'
+cat /tmp/ann_patch_forbid.json
+
+# 非创建者删除 → 403 FORBIDDEN
 curl -sS -o /tmp/ann_forbid.json -w '%{http_code}\n' -X DELETE "$BASE/anniversaries/$ANN" \
   -H "Authorization: Bearer $TOKEN_B"
 cat /tmp/ann_forbid.json
 
+curl -sS "$BASE/anniversaries" -H "Authorization: Bearer $TOKEN_B" | tee /tmp/ann_b_after_forbid.json
+
+# 创建者可改提醒
+curl -sS -X PATCH "$BASE/anniversaries/$ANN" \
+  -H "Authorization: Bearer $TOKEN_A" -H 'Content-Type: application/json' \
+  -d '{"remind_days_before":1}' | tee /tmp/ann_patch.json
+
+# 创建者可删
 curl -sS -o /dev/null -w '%{http_code}\n' -X DELETE "$BASE/anniversaries/$ANN" \
   -H "Authorization: Bearer $TOKEN_A"
 ```
 
-期望：B 为 `403`，`code=FORBIDDEN`；A 为 `204`。之后 B 的列表不再包含 `$ANN`。space 内另一名成员可以 `PATCH` 提醒字段（例如 `remind_days_before`），删除才限制为创建者。
+期望：B 的 PATCH 与 DELETE 都是 `403`，`code=FORBIDDEN`（message 为 `only the author can do that`）。拒绝之后 B 的列表仍含 `$ANN`，且仍是 `title=在一起`、`remind=true`、`remind_days_before=0`、`remind_local_time="09:00"`、`timezone="Asia/Shanghai"`。A 的 PATCH 为 `200` 且 `remind_days_before=1`；A 的 DELETE 为 `204`。删除后 B 的列表不再包含 `$ANN`。
 
 ### 6.3 本地 dry-run：对准「现在」触发 stub，不必等到早上 9 点
 
 保持 `APNS_KEY_ID`、`APNS_TEAM_ID`、`APNS_BUNDLE_ID`、`APNS_KEY_PATH`、`FCM_PROJECT_ID`、`FCM_CREDENTIALS_PATH` 为空，重启或确认 API 已在跑，启动日志含 `push: apns configured=false fcm configured=false`。
 
-worker 约每 60 秒跳一次，**不会在进程启动的那一秒立刻扫**。窗口是当地 `remind_local_time` 起的 2 分钟。API 先跑起来，再把提醒时刻设成 Asia/Shanghai 的当前 `HH:MM`，然后盯日志最多约 2 分钟。没出现就再 PATCH 成新的当前分钟（新时刻是另一次触发，不受上一次 48 小时去重影响）。
+worker 约每 60 秒跳一次，**不会在进程启动的那一秒立刻扫**。窗口是当地 `remind_local_time` 起的 2 分钟。API 先跑起来，再由创建者把提醒时刻设成 Asia/Shanghai 的当前 `HH:MM`，然后盯日志最多约 2 分钟。没出现就由创建者再 PATCH 成新的当前分钟（新时刻是另一次触发，不受上一次 48 小时去重影响）。非创建者 PATCH 为 `403`。
 
 ```bash
 TODAY=$(TZ=Asia/Shanghai date +%F)
@@ -333,7 +348,16 @@ APNs：`aps.alert.title/body`，`aps.sound=default`，data 键与 `aps` 同级�
 
 本地 stub **只打印 title**，不打印 body/data，也不发网。本步通过标准是两条 `push stub` 日志。data 键已在契约里锁定，供客户端先写解析；sender 还没附带 data 时，缺 data 只展示 title/body，App 不崩溃。真机在凭证配齐后按该 schema 核对报文。系统通知关闭时 OS 可能不展示，服务端仍会按 token 尝试（stub 下就是上面的日志）。
 
-去重：同一次触发（纪念日 id + 该次本地时刻）48 小时内只扇出一轮。窗口错过不会自动补发；把 `remind_local_time` 改到新的当前分钟再等下一跳。
+去重：同一次触发（纪念日 id + 该次本地时刻）48 小时内只扇出一轮。窗口错过不会自动补发。由创建者（`$TOKEN_A`）把 `remind_local_time` 改到新的当前分钟再等下一跳。非创建者 PATCH 为 `403`，时刻不变。
+
+```bash
+NOW=$(TZ=Asia/Shanghai date +%H:%M)
+curl -sS -o /tmp/ann_retry.json -w '%{http_code}\n' -X PATCH "$BASE/anniversaries/$ANN_TODAY" \
+  -H "Authorization: Bearer $TOKEN_A" -H 'Content-Type: application/json' \
+  -d "{\"remind_local_time\":\"$NOW\"}"
+```
+
+期望：创建者这次 PATCH 为 `200`。用 `$TOKEN_B` 做同样的 PATCH 应为 `403`。
 
 提前一天的可选核对：`event_date` 设为 Asia/Shanghai 的明天、`remind_days_before=1`、`remind_local_time` 设为当前分钟。stub 的 title 仍是标题；约定 body 为 `「标题」还有 1 天`。
 
@@ -419,5 +443,5 @@ curl -sS -X POST "$BASE/auth/refresh" -H 'Content-Type: application/json' \
 | 3 | 定位可选；不选可发 | ☐ |
 | 4 | 赞/取消一致；评论见内容与作者 | ☐ |
 | 5 | 打卡名+时间双方可见 | ☐ |
-| 6 | 纪念日双方可见；默认当天 09:00；仅创建者可删；ios→APNs、android→FCM；本地 stub 日志各一条；非法 token 400；关系统通知不影响登记 | ☐ |
+| 6 | 纪念日双方可见；默认当天 09:00；非创建者 PATCH/DELETE 为 403；创建者可改可删；ios→APNs、android→FCM；本地 stub 日志各一条；非法 token 400；关系统通知不影响登记 | ☐ |
 | 7 | P1 收藏双方一致；定位 visibility 双方一致 | ☐ |

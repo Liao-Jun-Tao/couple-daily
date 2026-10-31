@@ -2,7 +2,7 @@
 
 > 范围：P0 + P1 字段预留。ID 均为 UUID string；时间均为 RFC3339 UTC 存储；业务表一律带 `space_id`，中间件校验当前用户属于该 space。
 >
-> **Auth（已确认）**：邮箱 + 密码注册/登录；邀请码配对。手机号验证码不上首版（P1）。项 2–5 已锁（仅作者可删、禁止双空、发起时建 space、APNs+FCM）。
+> **Auth（已确认）**：邮箱 + 密码注册/登录；邀请码配对。手机号验证码不上首版（P1）。项 2–5 已锁（仅作者可删、禁止双空、发起时建 space、APNs+FCM）。纪念日 PATCH 与 DELETE 仅创建者，非创建者 403。
 
 ## ER 关系概览
 
@@ -217,7 +217,7 @@ P1 备注：若日后加手机号验证码，再增 `phone` 可空 UNIQUE + `otp
 |------|------|------|------|
 | id | uuid | PK | |
 | space_id | uuid | FK→couple_spaces NOT NULL | |
-| creator_user_id | uuid | FK→users NOT NULL | |
+| creator_user_id | uuid | FK→users NOT NULL | PATCH 与 DELETE 仅此用户 |
 | title | varchar(128) | NOT NULL | 名称 |
 | event_date | date | NOT NULL | 纪念日日期（无时区，按「日」） |
 | recurrence | varchar(16) | NOT NULL DEFAULT 'yearly' | `yearly` \| `once` |
@@ -230,6 +230,8 @@ P1 备注：若日后加手机号验证码，再增 `phone` 可空 UNIQUE + `otp
 | deleted_at | timestamptz | NULL | |
 
 索引：`(space_id, event_date)`；`(remind) WHERE remind=true AND deleted_at IS NULL`（worker 扫描）。
+
+写权限：`PATCH /anniversaries/{id}` 与 `DELETE /anniversaries/{id}` 仅 `creator_user_id` 本人。同 space 的另一成员改标题、日期或提醒字段（`remind`、`remind_days_before`、`remind_local_time`、`timezone`）以及删除，均返回 403 `FORBIDDEN`，行内容不变。列表与创建仍对 space 成员开放；创建时 `creator_user_id` 记为当前用户。
 
 推送调度：没有 `anniversary_reminder_jobs`，也没有 push outbox。API 进程内每分钟扫描 `remind=true AND deleted_at IS NULL` 的行（`backend/internal/push`）。触发条件是纪念日 `timezone` 的当地时间落在 `[remind_local_time, remind_local_time+2min)`。默认 `remind_local_time=09:00`、`timezone=Asia/Shanghai`、`remind_days_before=0`，即周年当天当地 09:00。双方用同一条纪念日时区，没有成员级时区列。`yearly` 按月-日重复，2 月 29 日在非闰年夹到该月最后一天；`once` 只在 `event_date` 的年份触发。
 
@@ -259,7 +261,7 @@ P1 备注：若日后加手机号验证码，再增 `phone` 可空 UNIQUE + `otp
 
 1. 除 Auth / Pairing(create&accept) / Devices 外，所有业务 API 从 JWT 解析 `user_id`，查 `space_members` 得 `space_id`（或要求 path/query 显式 space 并校验归属）。
 2. 列表/读写一律 `WHERE space_id = :current_space_id`。
-3. 删除类：**仅作者**可删帖/评/打卡/纪念日/收藏；点赞仅本人可取消（骏涛已确认）。
+3. 删除类：**仅作者**可删帖/评/打卡/纪念日/收藏；点赞仅本人可取消（骏涛已确认）。纪念日更新同样仅创建者：`PATCH /anniversaries/{id}`（含提醒字段）对非创建者返回 403 `FORBIDDEN`。
 4. `member_count=2` 后 `POST /pairing/invites/accept` 对任意第三人返回 `SPACE_FULL`。
 
 ## Cursor 分页

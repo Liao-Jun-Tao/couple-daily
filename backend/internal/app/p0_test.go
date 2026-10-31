@@ -246,11 +246,38 @@ func TestP0AuthInviteAndSpace(t *testing.T) {
 	if annCode != http.StatusCreated || ann["remind_local_time"] != "09:00" || ann["timezone"] != "Asia/Shanghai" || ann["remind"] != true {
 		t.Fatalf("anniversary %d %v", annCode, ann)
 	}
-	if code, body := do(t, h, http.MethodPatch, "/v1/anniversaries/"+ann["id"].(string), bob.token, map[string]any{"remind_days_before": 1}); code != http.StatusOK || body["remind_days_before"].(float64) != 1 {
-		t.Fatalf("patch anniversary %d %v", code, body)
+	annID := ann["id"].(string)
+	if code, body := do(t, h, http.MethodPatch, "/v1/anniversaries/"+annID, bob.token, map[string]any{
+		"title": "被改掉", "remind": false, "remind_days_before": 1, "remind_local_time": "10:00", "timezone": "Asia/Tokyo",
+	}); code != http.StatusForbidden || body["code"] != "FORBIDDEN" {
+		t.Fatalf("patch anniversary non-creator %d %v", code, body)
 	}
-	if code, body := do(t, h, http.MethodDelete, "/v1/anniversaries/"+ann["id"].(string), bob.token, nil); code != http.StatusForbidden {
+	if code, body := do(t, h, http.MethodPatch, "/v1/anniversaries/"+annID, bob.token, map[string]any{"remind_local_time": ""}); code != http.StatusForbidden || body["code"] != "FORBIDDEN" {
+		t.Fatalf("patch anniversary invalid field non-creator %d %v", code, body)
+	}
+	listCode, listBody := do(t, h, http.MethodGet, "/v1/anniversaries", bob.token, nil)
+	if listCode != http.StatusOK {
+		t.Fatalf("list after forbidden patch %d %v", listCode, listBody)
+	}
+	var seen map[string]any
+	for _, raw := range listBody["items"].([]any) {
+		item := raw.(map[string]any)
+		if item["id"] == annID {
+			seen = item
+			break
+		}
+	}
+	if seen == nil || seen["title"] != "在一起" || seen["remind"] != true || seen["remind_days_before"].(float64) != 0 || seen["remind_local_time"] != "09:00" || seen["timezone"] != "Asia/Shanghai" {
+		t.Fatalf("forbidden patch mutated anniversary %v", seen)
+	}
+	if code, body := do(t, h, http.MethodPatch, "/v1/anniversaries/"+annID, alice.token, map[string]any{"remind_days_before": 1}); code != http.StatusOK || body["remind_days_before"].(float64) != 1 {
+		t.Fatalf("patch anniversary creator %d %v", code, body)
+	}
+	if code, body := do(t, h, http.MethodDelete, "/v1/anniversaries/"+annID, bob.token, nil); code != http.StatusForbidden || body["code"] != "FORBIDDEN" {
 		t.Fatalf("ann delete %d %v", code, body)
+	}
+	if code, body := do(t, h, http.MethodDelete, "/v1/anniversaries/"+annID, alice.token, nil); code != http.StatusNoContent {
+		t.Fatalf("ann creator delete %d %v", code, body)
 	}
 
 	devCode, dev := do(t, h, http.MethodPost, "/v1/devices", alice.token, map[string]any{"platform": "android", "token": "TEST_FCM_TOKEN_A"})
