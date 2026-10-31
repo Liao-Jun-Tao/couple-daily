@@ -31,9 +31,10 @@
 cd backend
 cp .env.example .env
 docker compose up -d
-psql "postgres://couple:couple@localhost:5432/couple_daily?sslmode=disable" -f migrations/000001_init.up.sql
 go run ./cmd/api
 ```
+
+进程启动时会执行 `migrations/*.up.sql`。如果这份初始表已经用 psql 建过，启动只记下版本，不会重复执行。
 
 另一个终端：
 
@@ -43,7 +44,7 @@ curl -sS http://localhost:8080/healthz
 
 期望返回 `{"status":"ok"}`。
 
-业务路由在 `/v1`，路径与 `docs/api/openapi.yaml` 一致。handler 尚未实现，这些路由返回 `501` 和 `{"code":"NOT_IMPLEMENTED"}`。
+业务路由在 `/v1`，路径与 `docs/api/openapi.yaml` 一致。Redis 或 MinIO 没起来时，注册、登录和邀请码仍然可用。没有 APNs / FCM 凭证时，`POST /devices` 照常登记 iOS 和 Android token，发送走 stub。
 
 ```bash
 cd backend
@@ -61,4 +62,4 @@ go test ./...
 - `docs/tech-stack-recommendation.md`
 - `docs/CHANGELOG-draft.md`
 
-业务验收步骤见 `docs/self-test.md`。脚手架阶段先确认 `/healthz`。
+业务验收步骤见 `docs/self-test.md`。

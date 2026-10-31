@@ -6,9 +6,6 @@ package posts
 import (
 	"errors"
 	"strings"
-
-	"github.com/Liao-Jun-Tao/couple-daily/internal/httpapi"
-	"github.com/go-chi/chi/v5"
 )
 
 const (
@@ -22,20 +19,6 @@ var (
 	ErrTooManyMedia      = errors.New("a post can include at most 9 media")
 	ErrInvalidVisibility = errors.New("location visibility must be exact, city, or hidden")
 )
-
-// Mount registers post, like, and comment routes. Handlers return 501 until implemented.
-func Mount(r chi.Router) {
-	r.Get("/posts", httpapi.NotImplemented)
-	r.Post("/posts", httpapi.NotImplemented)
-	r.Get("/posts/{postId}", httpapi.NotImplemented)
-	r.Patch("/posts/{postId}", httpapi.NotImplemented)
-	r.Delete("/posts/{postId}", httpapi.NotImplemented)
-	r.Put("/posts/{postId}/likes", httpapi.NotImplemented)
-	r.Delete("/posts/{postId}/likes", httpapi.NotImplemented)
-	r.Get("/posts/{postId}/comments", httpapi.NotImplemented)
-	r.Post("/posts/{postId}/comments", httpapi.NotImplemented)
-	r.Delete("/comments/{commentId}", httpapi.NotImplemented)
-}
 
 // ValidateContent enforces the locked non-empty rule and the 9-image cap.
 func ValidateContent(body string, mediaCount int) error {

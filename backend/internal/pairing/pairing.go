@@ -8,9 +8,6 @@ import (
 	"errors"
 	"strings"
 	"time"
-
-	"github.com/Liao-Jun-Tao/couple-daily/internal/httpapi"
-	"github.com/go-chi/chi/v5"
 )
 
 const (
@@ -22,13 +19,6 @@ const (
 )
 
 var ErrInvalidInviteCode = errors.New("invite code must be 6 letters or digits")
-
-// Mount registers pairing routes. Handlers return 501 until implemented.
-func Mount(r chi.Router) {
-	r.Post("/pairing/invites", httpapi.NotImplemented)
-	r.Post("/pairing/invites/accept", httpapi.NotImplemented)
-	r.Get("/pairing/space", httpapi.NotImplemented)
-}
 
 // NewInviteCode returns a new code and the absolute expiry (now + 24h).
 func NewInviteCode(now time.Time) (string, time.Time, error) {

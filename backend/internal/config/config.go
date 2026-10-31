@@ -10,8 +10,7 @@ import (
 
 const DefaultJWTSecret = "change-me"
 
-// Config is the runtime configuration. Business handlers are not wired yet;
-// the fields exist so local env and deploy config have one shape.
+// Config is the runtime configuration for the API process.
 type Config struct {
 	HTTPAddr           string
 	DatabaseURL        string
@@ -29,6 +28,7 @@ type Config struct {
 	APNSTeamID         string
 	APNSBundleID       string
 	APNSKeyPath        string
+	APNSUseSandbox     bool
 	FCMProjectID       string
 	FCMCredentialsPath string
 }
@@ -51,6 +51,7 @@ func Load() Config {
 		APNSTeamID:         env("APNS_TEAM_ID", ""),
 		APNSBundleID:       env("APNS_BUNDLE_ID", ""),
 		APNSKeyPath:        env("APNS_KEY_PATH", ""),
+		APNSUseSandbox:     envBool("APNS_USE_SANDBOX", false),
 		FCMProjectID:       env("FCM_PROJECT_ID", ""),
 		FCMCredentialsPath: env("FCM_CREDENTIALS_PATH", ""),
 	}

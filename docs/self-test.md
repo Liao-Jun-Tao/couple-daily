@@ -73,7 +73,7 @@ curl -sS -o /tmp/c_reuse.json -w '%{http_code}\n' -X POST "$BASE/pairing/invites
 cat /tmp/c_reuse.json
 ```
 
-期望：`4xx`，`code` 为 `INVITE_USED` / `INVITE_INVALID` 等。
+期望：`409`，`code` 为 `SPACE_FULL`（OpenAPI：满员后再接受）。码已作废但 space 仍只有 1 人时为 `INVITE_USED`；过期码为 `INVITE_EXPIRED`。
 
 若 A 在已满 space 再发邀请（产品：已配对不可再邀）：
 
@@ -253,11 +253,16 @@ curl -sS -X POST "$BASE/favorites" \
 FAV=$(jq -r .id /tmp/fav.json)
 
 curl -sS "$BASE/favorites" -H "Authorization: Bearer $TOKEN_A"
-curl -sS -X DELETE "$BASE/favorites/$FAV" -H "Authorization: Bearer $TOKEN_A"
+# 非作者删除 → 403 FORBIDDEN（OpenAPI：仅作者可删）
+curl -sS -o /tmp/fav_forbid.json -w '%{http_code}\n' -X DELETE "$BASE/favorites/$FAV" \
+  -H "Authorization: Bearer $TOKEN_A"
+# 作者删除
+curl -sS -X DELETE "$BASE/favorites/$FAV" -H "Authorization: Bearer $TOKEN_B"
+curl -sS "$BASE/favorites" -H "Authorization: Bearer $TOKEN_A"
 curl -sS "$BASE/favorites" -H "Authorization: Bearer $TOKEN_B"
 ```
 
-期望：添加后双方列表一致；删除后双方均无该条。
+期望：添加后双方列表一致；非作者删除 `403`；作者删除后双方均无该条。
 
 ---
 

@@ -7,9 +7,6 @@ import (
 	"strconv"
 	"time"
 	_ "time/tzdata"
-
-	"github.com/Liao-Jun-Tao/couple-daily/internal/httpapi"
-	"github.com/go-chi/chi/v5"
 )
 
 const (
@@ -20,14 +17,6 @@ const (
 )
 
 var ErrInvalidReminder = errors.New("invalid anniversary reminder")
-
-// Mount registers anniversary routes. Handlers return 501 until implemented.
-func Mount(r chi.Router) {
-	r.Get("/anniversaries", httpapi.NotImplemented)
-	r.Post("/anniversaries", httpapi.NotImplemented)
-	r.Patch("/anniversaries/{anniversaryId}", httpapi.NotImplemented)
-	r.Delete("/anniversaries/{anniversaryId}", httpapi.NotImplemented)
-}
 
 // Reminder is the normalized push schedule stored for an anniversary.
 type Reminder struct {
