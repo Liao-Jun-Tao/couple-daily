@@ -8,7 +8,7 @@
 |------|------|
 | `backend/` | Go API（chi）、PostgreSQL 迁移、本地 postgres / redis / minio |
 | `docs/` | 已锁定的接口契约、数据模型、自测与技术栈 |
-| `apps/mobile/` | Flutter 客户端。留给前端脚手架，本仓库的后端变更不创建该目录 |
+| `apps/mobile/` | Flutter 客户端脚手架（进程内 Mock，不接 API）。本轮演示优先 Android |
 
 模块路径是 `github.com/Liao-Jun-Tao/couple-daily`。Go 源码在 `backend/`，不在仓库根目录。
 
@@ -66,3 +66,7 @@ go test ./...
 - `docs/CHANGELOG-draft.md`
 
 业务验收步骤见 `docs/self-test.md`。
+
+## 客户端
+
+`apps/mobile` 是 Mock 壳，不调用 `backend/`。工程仍是 Flutter 双端。本轮演示优先 Android：`flutter pub get`，打开模拟器，`flutter devices`，再 `flutter run`（多设备时 `flutter run -d <emulator-id>`）。Debug 包：`flutter build apk --debug --split-per-abi`，例如 `adb install -r build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk`。演示图在 `docs/demo/`（widget 渲染，不是模拟器）。iOS 模拟器后置。细节见 `apps/mobile/README.md`。
