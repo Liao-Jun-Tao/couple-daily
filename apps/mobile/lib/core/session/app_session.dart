@@ -53,6 +53,15 @@ class AppSession extends ChangeNotifier {
 
   final NotificationGateway notifications;
   final ReminderStub reminders;
+
+  /// User closed the anniversary-reminder permission tip. Kept for this
+  /// process so 我的 does not show it again after they continue using the app.
+  bool notificationPermissionTipDismissed = false;
+
+  void dismissNotificationPermissionTip() {
+    notificationPermissionTipDismissed = true;
+  }
+
   final ApiConfig _config;
 
   late final MockBackend? _backend;

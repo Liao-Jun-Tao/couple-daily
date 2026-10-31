@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import 'package:couple_daily/core/errors/api_exception.dart';
 import 'package:couple_daily/core/notifications/notification_gateway.dart';
+import 'package:couple_daily/core/notifications/notification_permission_copy.dart';
 import 'package:couple_daily/core/notifications/push_platform.dart';
 import 'package:couple_daily/core/session/session_scope.dart';
+import 'package:couple_daily/features/me/notification_permission_banner.dart';
 
 class MePage extends StatefulWidget {
   const MePage({super.key});
@@ -12,19 +14,57 @@ class MePage extends StatefulWidget {
   State<MePage> createState() => _MePageState();
 }
 
-class _MePageState extends State<MePage> {
+class _MePageState extends State<MePage> with WidgetsBindingObserver {
   String? _notice;
   bool _requesting = false;
+  int _generation = 0;
+  NotificationPermissionResult? _permission;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadPermissionStatus();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadPermissionStatus();
+    }
+  }
+
+  /// Settings entry: read the OS status without showing the system prompt.
+  Future<void> _loadPermissionStatus() async {
+    if (!mounted || _requesting) return;
+    final generation = _generation;
+    final session = SessionScope.read(context);
+    final result = await session.notifications.status();
+    if (!mounted || generation != _generation || _requesting) return;
+    setState(() => _permission = result);
+  }
 
   Future<void> _requestNotifications() async {
+    final generation = ++_generation;
     setState(() => _requesting = true);
     final session = SessionScope.read(context);
     final result = await session.notifications.request();
-    if (!mounted) return;
+    if (!mounted || generation != _generation) return;
     if (result == NotificationPermissionResult.granted) {
       final userId = session.userId;
       if (userId == null) {
-        setState(() => _requesting = false);
+        setState(() {
+          _requesting = false;
+          _permission = result;
+        });
         return;
       }
       final platform = currentPushPlatform();
@@ -34,25 +74,28 @@ class _MePageState extends State<MePage> {
           token: 'stub-$platform-$userId',
         );
       } on Object catch (error) {
-        if (!mounted) return;
+        if (!mounted || generation != _generation) return;
         setState(() {
           _requesting = false;
+          _permission = result;
           _notice = '权限已同意，但设备没有登记成功。应用会继续使用。${messageOf(error)}';
         });
         return;
       }
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       setState(() {
         _requesting = false;
+        _permission = result;
         _notice = '已同意。已登记 ${pushChannelName(platform)} stub token，尚未连接真实推送。';
       });
       return;
     }
     setState(() {
       _requesting = false;
-      _notice = result == NotificationPermissionResult.denied
-          ? '通知权限被拒绝。应用会继续使用，不会因此崩溃。'
-          : '当前环境没有系统通知权限接口。应用会继续使用。';
+      _permission = result;
+      _notice = result == NotificationPermissionResult.unavailable
+          ? '当前环境没有系统通知权限接口。应用会继续使用。'
+          : null;
     });
   }
 
@@ -63,11 +106,26 @@ class _MePageState extends State<MePage> {
     final space = session.space;
     final devices = user == null ? const [] : session.devices();
     final theme = Theme.of(context);
+    final permission = _permission;
+    final showTip =
+        permission != null &&
+        notificationPermissionIsDenied(permission) &&
+        !session.notificationPermissionTipDismissed;
     return Scaffold(
       appBar: AppBar(title: const Text('我的')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (showTip) ...[
+            NotificationPermissionBanner(
+              result: permission,
+              onDismiss: () {
+                session.dismissNotificationPermissionTip();
+                setState(() {});
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
           Text(
             user?.displayName ?? '未登录',
             style: theme.textTheme.headlineSmall,

@@ -152,10 +152,79 @@ void main() {
 
     await tester.tap(find.text('我的'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('notification-request')));
     await tester.tap(find.byKey(const Key('notification-request')));
     await tester.pumpAndSettle();
-    expect(find.textContaining('通知权限被拒绝'), findsOneWidget);
+    expect(find.textContaining('纪念日提醒需要通知权限'), findsOneWidget);
     expect(find.text('我的'), findsWidgets);
+    expect(session.devices(), isEmpty);
+  });
+
+  testWidgets('permanently denied tip is dismissible and does not register', (
+    tester,
+  ) async {
+    final session = _pairedSession(
+      client: _ScriptedClient(
+        statusResult: NotificationPermissionResult.permanentlyDenied,
+        requestResult: NotificationPermissionResult.permanentlyDenied,
+      ),
+    );
+    await tester.pumpWidget(CoupleDailyApp(session: session));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('notification-permission-tip')), findsNothing);
+    await tester.tap(find.text('纪念日'));
+    await tester.pumpAndSettle();
+    expect(find.text('还没有纪念日'), findsOneWidget);
+
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('纪念日提醒需要通知权限'), findsOneWidget);
+    expect(find.textContaining('系统设置'), findsOneWidget);
+    expect(session.devices(), isEmpty);
+
+    await tester.tap(
+      find.byKey(const Key('notification-permission-tip-dismiss')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('notification-permission-tip')), findsNothing);
+    expect(find.text('请求通知权限'), findsOneWidget);
+
+    await tester.tap(find.text('时间线'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('写动态'), findsOneWidget);
+
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('notification-permission-tip')), findsNothing);
+    await tester.tap(find.byKey(const Key('notification-request')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('notification-permission-tip')), findsNothing);
+    expect(session.devices(), isEmpty);
+  });
+
+  testWidgets('granted permission still registers a stub token', (
+    tester,
+  ) async {
+    final session = _pairedSession(
+      client: _ScriptedClient(
+        statusResult: NotificationPermissionResult.granted,
+        requestResult: NotificationPermissionResult.granted,
+      ),
+    );
+    await tester.pumpWidget(CoupleDailyApp(session: session));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('notification-permission-tip')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('notification-request')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('已登记'), findsOneWidget);
+    expect(find.textContaining('stub-android-'), findsOneWidget);
+    expect(session.devices(), hasLength(1));
+    expect(session.devices().single.platform, 'android');
+    expect(find.byKey(const Key('notification-permission-tip')), findsNothing);
   });
 }
 
@@ -164,6 +233,24 @@ class _DenyClient implements NotificationPermissionClient {
   Future<NotificationPermissionResult> request() async {
     return NotificationPermissionResult.denied;
   }
+
+  @override
+  Future<NotificationPermissionResult> status() async {
+    return NotificationPermissionResult.denied;
+  }
+}
+
+class _ScriptedClient implements NotificationPermissionClient {
+  _ScriptedClient({required this.statusResult, required this.requestResult});
+
+  final NotificationPermissionResult statusResult;
+  final NotificationPermissionResult requestResult;
+
+  @override
+  Future<NotificationPermissionResult> status() async => statusResult;
+
+  @override
+  Future<NotificationPermissionResult> request() async => requestResult;
 }
 
 AppSession _pairedSession({required NotificationPermissionClient client}) {
