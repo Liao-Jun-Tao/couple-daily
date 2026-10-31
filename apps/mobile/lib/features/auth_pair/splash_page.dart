@@ -21,7 +21,7 @@ class _SplashPageState extends State<SplashPage> {
     super.initState();
     _timer = Timer(splashHold, () {
       if (!mounted) return;
-      SessionScope.read(context).markReady();
+      unawaited(SessionScope.read(context).bootstrap());
     });
   }
 

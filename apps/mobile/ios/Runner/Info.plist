@@ -10,6 +10,13 @@
 	<string>情侣日常</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>选择照片，发布到你们的时间线。</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

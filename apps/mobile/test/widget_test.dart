@@ -13,7 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets('auth is email and password', (tester) async {
-    await tester.pumpWidget(const CoupleDailyApp());
+    await tester.pumpWidget(CoupleDailyApp(session: AppSession(useMock: true)));
     await tester.pump(splashHold);
     await tester.pumpAndSettle();
 
@@ -26,7 +26,10 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('auth-name')), findsOneWidget);
     await tester.enterText(find.byKey(const Key('auth-name')), '甲');
-    await tester.enterText(find.byKey(const Key('auth-email')), 'a@example.com');
+    await tester.enterText(
+      find.byKey(const Key('auth-email')),
+      'a@example.com',
+    );
     await tester.enterText(find.byKey(const Key('auth-password')), 'password1');
     await tester.tap(find.byKey(const Key('auth-submit')));
     await tester.pumpAndSettle();
@@ -47,7 +50,7 @@ void main() {
   });
 
   testWidgets('delete controls are author only', (tester) async {
-    final session = AppSession();
+    final session = AppSession(useMock: true);
     final author = session.backend.register(
       email: 'a@example.com',
       password: 'password1',
@@ -59,7 +62,10 @@ void main() {
       displayName: '乙',
     );
     final ticket = session.backend.createInvite(author.user.id);
-    session.backend.acceptInvite(userId: other.user.id, code: ticket.inviteCode);
+    session.backend.acceptInvite(
+      userId: other.user.id,
+      code: ticket.inviteCode,
+    );
     final post = session.backend.createPost(
       userId: author.user.id,
       body: '只有甲能删',
@@ -102,7 +108,9 @@ void main() {
     expect(find.byTooltip('删除评论'), findsNothing);
   });
 
-  testWidgets('shell, manual check-in, and denied notifications', (tester) async {
+  testWidgets('shell, manual check-in, and denied notifications', (
+    tester,
+  ) async {
     final session = _pairedSession(client: _DenyClient());
     await tester.pumpWidget(CoupleDailyApp(session: session));
     await tester.pumpAndSettle();
@@ -110,9 +118,8 @@ void main() {
     expect(find.text('时间线'), findsWidgets);
     await tester.tap(find.byTooltip('写动态'));
     await tester.pumpAndSettle();
-    FilledButton submit() => tester.widget<FilledButton>(
-      find.byKey(const Key('compose-submit')),
-    );
+    FilledButton submit() =>
+        tester.widget<FilledButton>(find.byKey(const Key('compose-submit')));
     expect(submit().onPressed, isNull);
     await tester.enterText(find.byKey(const Key('compose-body')), '今天');
     await tester.pump();
@@ -123,7 +130,10 @@ void main() {
     await tester.tap(find.text('餐厅'));
     await tester.pumpAndSettle();
     expect(find.text('搜索餐厅'), findsOneWidget);
-    await tester.enterText(find.byKey(const Key('restaurant-search')), '没有这家店xyz');
+    await tester.enterText(
+      find.byKey(const Key('restaurant-search')),
+      '没有这家店xyz',
+    );
     await tester.pump();
     expect(find.text('用手填店名打卡'), findsOneWidget);
     await tester.tap(find.byKey(const Key('manual-checkin')));

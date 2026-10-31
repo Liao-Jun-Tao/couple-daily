@@ -33,17 +33,37 @@ class _CommentSheetState extends State<CommentSheet> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _reload();
+    });
+  }
+
+  Future<void> _reload() async {
+    try {
+      await SessionScope.read(context).refreshComments(widget.postId);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = messageOf(error));
+    }
+  }
+
+  @override
   void dispose() {
     _body.dispose();
     super.dispose();
   }
 
-  void _send() {
+  Future<void> _send() async {
     try {
-      SessionScope.read(context).addComment(widget.postId, _body.text);
+      await SessionScope.read(context).addComment(widget.postId, _body.text);
       _body.clear();
+      if (!mounted) return;
       setState(() => _error = null);
     } catch (error) {
+      if (!mounted) return;
       setState(() => _error = messageOf(error));
     }
   }
@@ -82,9 +102,13 @@ class _CommentSheetState extends State<CommentSheet> {
                                     message: '只有作者可以删除自己的评论。',
                                   );
                                   if (!confirmed || !context.mounted) return;
-                                  SessionScope.read(context).deleteComment(
-                                    comment.id,
-                                  );
+                                  try {
+                                    await SessionScope.read(context)
+                                        .deleteComment(comment.id);
+                                  } catch (error) {
+                                    if (!context.mounted) return;
+                                    setState(() => _error = messageOf(error));
+                                  }
                                 },
                                 icon: const Icon(Icons.delete_outline),
                               )

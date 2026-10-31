@@ -19,6 +19,7 @@ class _AuthPageState extends State<AuthPage> {
   final _name = TextEditingController();
   _AuthMode _mode = _AuthMode.login;
   String? _error;
+  bool _busy = false;
 
   @override
   void dispose() {
@@ -28,27 +29,41 @@ class _AuthPageState extends State<AuthPage> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
+    if (_busy) return;
     final session = SessionScope.read(context);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       if (_mode == _AuthMode.register) {
-        session.register(
+        await session.register(
           email: _email.text,
           password: _password.text,
           displayName: _name.text,
         );
       } else {
-        session.login(email: _email.text, password: _password.text);
+        await session.login(email: _email.text, password: _password.text);
       }
     } catch (error) {
       if (!mounted) return;
-      setState(() => _error = messageOf(error));
+      setState(() {
+        _busy = false;
+        _error = messageOf(error);
+      });
+      return;
     }
+    if (!mounted) return;
+    setState(() => _busy = false);
   }
 
   @override
   Widget build(BuildContext context) {
     final registering = _mode == _AuthMode.register;
+    final sessionStartup = _error == null
+        ? SessionScope.of(context).startupError
+        : null;
     return Scaffold(
       appBar: AppBar(title: const Text('情侣日常')),
       body: ListView(
@@ -101,18 +116,22 @@ class _AuthPageState extends State<AuthPage> {
             ),
             onSubmitted: (_) => _submit(),
           ),
-          if (_error != null) ...[
+          if (_error != null || sessionStartup != null) ...[
             const SizedBox(height: 12),
             Text(
-              _error!,
+              _error ?? sessionStartup!,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ],
           const SizedBox(height: 20),
           FilledButton(
             key: const Key('auth-submit'),
-            onPressed: _submit,
-            child: Text(registering ? '注册' : '登录'),
+            onPressed: _busy
+                ? null
+                : () async {
+                    await _submit();
+                  },
+            child: Text(_busy ? '请稍候…' : (registering ? '注册' : '登录')),
           ),
         ],
       ),
