@@ -325,6 +325,7 @@ func do(t *testing.T, h http.Handler, method, path, token string, body any) (int
 func integrationConfig(t *testing.T) config.Config {
 	t.Helper()
 	cfg := config.Load()
+	cfg.AppEnv = "local"
 	cfg.JWTSecret = "test-secret"
 	cfg.JWTAccessTTL = time.Hour
 	cfg.JWTRefreshTTL = 24 * time.Hour

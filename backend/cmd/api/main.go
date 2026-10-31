@@ -16,10 +16,6 @@ import (
 
 func main() {
 	cfg := config.Load()
-	if cfg.JWTSecret == config.DefaultJWTSecret {
-		log.Println("warning: JWT_SECRET is the example default; set it before any shared deployment")
-	}
-
 	application, err := app.New(context.Background(), cfg)
 	if err != nil {
 		log.Fatal(err)

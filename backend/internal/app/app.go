@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -85,6 +86,12 @@ func UnconnectedRouter() http.Handler {
 
 // New migrates the database and starts the reminder loop.
 func New(ctx context.Context, cfg config.Config) (*App, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	if cfg.AllowsInsecureDev() && (strings.EqualFold(cfg.JWTSecret, config.DefaultJWTSecret) || len(cfg.JWTSecret) < config.MinJWTSecretLen) {
+		log.Printf("warning: APP_ENV=%s is using a weak JWT_SECRET; do not expose this process beyond local development", cfg.AppEnv)
+	}
 	if err := dbmigrate.Apply(ctx, cfg.DatabaseURL, migrations.Files); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
@@ -104,6 +111,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			AccessTTL:  cfg.JWTAccessTTL,
 			RefreshTTL: cfg.JWTRefreshTTL,
 			Redis:      rdb,
+			Login:      auth.NewLoginGate(),
 		},
 		Pairing:       &pairing.Handler{DB: db, Authn: authn},
 		Media:         &media.Handler{DB: db, Authn: authn, Signer: signer},

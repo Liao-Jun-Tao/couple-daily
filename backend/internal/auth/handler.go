@@ -23,6 +23,8 @@ type Handler struct {
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
 	Redis      *redis.Client
+	// Login is nil unless the process installed a gate. A nil gate does not throttle.
+	Login *loginGate
 }
 
 // Mount registers /auth routes.
@@ -72,6 +74,10 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Password == "" {
 		apierr.Write(w, apierr.Validation("password is required"))
+		return
+	}
+	if h.Login != nil && !h.Login.allow(clientIP(r), req.Email, time.Now()) {
+		apierr.Write(w, apierr.ErrRateLimited)
 		return
 	}
 	email, err := NormalizeEmail(req.Email)

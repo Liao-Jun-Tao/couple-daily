@@ -44,6 +44,7 @@ var (
 	ErrEmptyPost          = &Error{Status: http.StatusBadRequest, Code: "EMPTY_POST", Message: "post needs text or at least one image"}
 	ErrMediaInvalid       = &Error{Status: http.StatusBadRequest, Code: "MEDIA_INVALID", Message: "media is missing, not yours, or already attached"}
 	ErrFavoriteExists     = &Error{Status: http.StatusConflict, Code: "FAVORITE_EXISTS", Message: "this place is already saved"}
+	ErrRateLimited        = &Error{Status: http.StatusTooManyRequests, Code: "RATE_LIMITED", Message: "too many login attempts; try again shortly"}
 )
 
 // Write sends err using its API status when err is an Error, otherwise 500.

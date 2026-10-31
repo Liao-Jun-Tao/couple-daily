@@ -31,10 +31,13 @@
 cd backend
 cp .env.example .env
 docker compose up -d
+set -a && . ./.env && set +a
 go run ./cmd/api
 ```
 
 进程启动时会执行 `migrations/*.up.sql`。如果这份初始表已经用 psql 建过，启动只记下版本，不会重复执行。
+
+`.env.example` 里 `APP_ENV=local`，因此可以用示例 `JWT_SECRET=change-me` 和 MinIO 账号在本机启动。`APP_ENV` 不是 `local` / `dev` / `development`（含未设置）时，进程会直接退出：`JWT_SECRET` 不能为空、不能是 `change-me`、长度至少 32；对象存储一旦配置了 endpoint 或 bucket，必须带上访问密钥，且不能用示例的 `minio` / `minio12345`。
 
 另一个终端：
 
