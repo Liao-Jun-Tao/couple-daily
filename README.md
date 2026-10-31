@@ -21,7 +21,7 @@
 - **定位：** 可选，默认 `exact`。
 - **打卡：** 店名必填，可以手填；`place_id` 可以为空。
 - **纪念日：** 默认当天本地 `09:00`（`Asia/Shanghai`）提醒。
-- **推送：** iOS 走 APNs，Android 走 FCM。API 只登记 token。
+- **推送：** iOS（`platform=ios`）走 APNs，Android（`platform=android`）走 FCM。API 只登记 token。双方在纪念日时区的本地 `09:00` 各收一条。契约、payload 与本地 stub 步骤见 `docs/self-test.md` 第 6 节和 OpenAPI `AnniversaryPush`。
 
 ## 本地启动 API
 
@@ -47,7 +47,7 @@ curl -sS http://localhost:8080/healthz
 
 期望返回 `{"status":"ok"}`。
 
-业务路由在 `/v1`，路径与 `docs/api/openapi.yaml` 一致。Redis 或 MinIO 没起来时，注册、登录和邀请码仍然可用。没有 APNs / FCM 凭证时，`POST /devices` 照常登记 iOS 和 Android token，发送走 stub。
+业务路由在 `/v1`，路径与 `docs/api/openapi.yaml` 一致。Redis 或 MinIO 没起来时，注册、登录和邀请码仍然可用。没有 APNs / FCM 凭证时，`POST /devices` 照常登记 iOS 和 Android token，发送走 stub（日志 `push stub: provider=apns|fcm`）。怎么把纪念日对准当前分钟来看这条日志，见 `docs/self-test.md` 第 6.3 节。
 
 ```bash
 cd backend
