@@ -1,0 +1,23 @@
+# secrets
+.env
+**/.env
+!.env.example
+!**/.env.example
+
+# Go
+bin/
+*.exe
+*.test
+*.out
+coverage.out
+vendor/
+
+# local object-storage / db dumps
+backend/.data/
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+*.log

@@ -1,0 +1,1471 @@
+openapi: 3.0.3
+info:
+  title: couple-daily API
+  version: 0.1.0-draft
+  description: |
+    情侣日常 App（couple-daily）后端接口契约。
+    Flutter 双端；双人邀请制唯一 space；P0 + P1 字段预留。
+    Auth（已确认）：邮箱+密码注册/登录；邀请码配对。手机号验证码不上首版（P1）。
+    已锁：仅作者可删、发帖禁止双空、发起邀请时建 space、APNs+FCM、
+    邀请码 6 位/24h/一码一用、多图≤9/≤10MB、定位默认 exact、手填店名、纪念日当天本地 09:00。
+    时间均为 RFC3339 UTC；ID 为 UUID string。
+  contact:
+    name: couple-daily backend
+servers:
+  - url: https://api.couple-daily.example.com/v1
+    description: 预发/生产占位（实现前替换）
+  - url: http://localhost:8080/v1
+    description: 本地开发
+tags:
+  - name: Auth
+  - name: Pairing
+  - name: Media
+  - name: Posts
+  - name: Likes
+  - name: Comments
+  - name: Checkins
+  - name: Favorites
+  - name: Anniversaries
+  - name: Devices
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Auth（已确认）：邮箱 + 密码；手机号验证码（短信 OTP）为 P1，不上首版
+  # ---------------------------------------------------------------------------
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      security: []
+      summary: 邮箱密码注册
+      description: |
+        邮箱+密码注册并返回 JWT。邮箱唯一；密码 ≥8 字符。
+        P1 备注：手机号验证码登录不上首版。
+      operationId: authRegister
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: 注册成功并返回 token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: 邮箱密码登录
+      description: 邮箱+密码登录并返回 JWT。
+      operationId: authLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      security: []
+      summary: 刷新 access token
+      description: 使用 refresh_token 换取新的 access/refresh token 对。
+      operationId: authRefresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: 新 token 对
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: 当前用户与配对状态
+      description: 返回当前登录用户（含 email）及配对状态。
+      operationId: authMe
+      responses:
+        '200':
+          description: 当前用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+
+  /pairing/invites:
+    post:
+      tags: [Pairing]
+      summary: 发起邀请（生成 6 位 invite_code，TTL 24h，一码一用）
+      description: |
+        未配对用户调用。创建 CoupleSpace（member_count=1）、加入自己，并生成 invite_code。
+        已在 space 中则 409 ALREADY_PAIRED。
+      operationId: createInvite
+      responses:
+        '201':
+          description: 邀请已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InviteResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+
+  /pairing/invites/accept:
+    post:
+      tags: [Pairing]
+      summary: 接受邀请码，加入对方 space
+      description: |
+        校验 code pending、未过期、space.member_count=1、接受方未在其他 space。
+        成功后双方同属该 space；第三人再接受返回 SPACE_FULL。
+      operationId: acceptInvite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptInviteRequest'
+      responses:
+        '200':
+          description: 配对成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceResponse'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+
+  /pairing/space:
+    get:
+      tags: [Pairing]
+      summary: 获取当前用户所属 CoupleSpace
+      operationId: getSpace
+      responses:
+        '200':
+          description: 当前 space
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          description: 尚未配对
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /media/uploads:
+    post:
+      tags: [Media]
+      summary: 创建上传意图，返回预签名 URL
+      description: |
+        客户端拿到 upload_url 后直传对象存储；完成后再把 media_id 用于发帖。
+        单张 ≤10MB；content_type 限 image/jpeg|png|heic|webp。
+      operationId: createMediaUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaUploadRequest'
+      responses:
+        '201':
+          description: 上传意图
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaUploadResponse'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+
+  /posts:
+    get:
+      tags: [Posts]
+      summary: 当前 space 动态时间线（时间倒序，cursor 分页）
+      operationId: listPosts
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 帖子列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostListResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+    post:
+      tags: [Posts]
+      summary: 发动态（文案 + 最多 9 张图；定位可选）
+      operationId: createPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostRequest'
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+
+  /posts/{postId}:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    get:
+      tags: [Posts]
+      summary: 获取单条动态
+      operationId: getPost
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+    patch:
+      tags: [Posts]
+      summary: 更新动态（文案/定位/媒体）
+      operationId: updatePost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePostRequest'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+    delete:
+      tags: [Posts]
+      summary: 删除动态（软删）
+      description: 仅作者可删（骏涛已确认）。
+      operationId: deletePost
+      responses:
+        '204':
+          description: 已删除
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+
+  /posts/{postId}/likes:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    put:
+      tags: [Likes]
+      summary: 点赞（幂等）
+      operationId: likePost
+      responses:
+        '200':
+          description: 当前赞状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LikeStatus'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+    delete:
+      tags: [Likes]
+      summary: 取消赞（幂等）
+      operationId: unlikePost
+      responses:
+        '200':
+          description: 当前赞状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LikeStatus'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+
+  /posts/{postId}/comments:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    get:
+      tags: [Comments]
+      summary: 评论列表（时间正序，cursor）
+      operationId: listComments
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentListResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+    post:
+      tags: [Comments]
+      summary: 发表评论
+      operationId: createComment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+
+  /comments/{commentId}:
+    delete:
+      tags: [Comments]
+      summary: 删除评论
+      description: 仅作者可删（骏涛已确认）。
+      operationId: deleteComment
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        '204':
+          description: 已删除
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+
+  /checkins:
+    get:
+      tags: [Checkins]
+      summary: 餐厅打卡列表（双方可见，时间倒序）
+      operationId: listCheckins
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckinListResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+    post:
+      tags: [Checkins]
+      summary: 创建餐厅打卡（name 必填 + 时间）
+      description: |
+        记录餐厅名 + 打卡时间（双方可见）。
+        搜索无结果时允许手填自定义店名（仅 name，place_id 可空）。
+      operationId: createCheckin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCheckinRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestaurantCheckin'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+
+  /checkins/{checkinId}:
+    delete:
+      tags: [Checkins]
+      summary: 删除打卡
+      description: 仅作者可删（骏涛已确认）。
+      operationId: deleteCheckin
+      parameters:
+        - name: checkinId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        '204':
+          description: 已删除
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+
+  /favorites:
+    get:
+      tags: [Favorites]
+      summary: "P1：餐厅收藏列表（双方同步）"
+      operationId: listFavorites
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavoriteListResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+    post:
+      tags: [Favorites]
+      summary: "P1：添加餐厅收藏"
+      operationId: createFavorite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFavoriteRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestaurantFavorite'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+
+  /favorites/{favoriteId}:
+    delete:
+      tags: [Favorites]
+      summary: "P1：取消收藏"
+      description: 仅作者可删（骏涛已确认）。
+      operationId: deleteFavorite
+      parameters:
+        - name: favoriteId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        '204':
+          description: 已删除
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+
+  /anniversaries:
+    get:
+      tags: [Anniversaries]
+      summary: 纪念日列表
+      operationId: listAnniversaries
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnniversaryListResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+    post:
+      tags: [Anniversaries]
+      summary: 创建纪念日
+      operationId: createAnniversary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAnniversaryRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Anniversary'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+
+  /anniversaries/{anniversaryId}:
+    parameters:
+      - name: anniversaryId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/UUID'
+    patch:
+      tags: [Anniversaries]
+      summary: 更新纪念日 / 提醒配置
+      operationId: updateAnniversary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAnniversaryRequest'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Anniversary'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+    delete:
+      tags: [Anniversaries]
+      summary: 删除纪念日
+      description: 仅作者可删（骏涛已确认）。
+      operationId: deleteAnniversary
+      responses:
+        '204':
+          description: 已删除
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+
+  /devices:
+    post:
+      tags: [Devices]
+      summary: 登记推送 device token（APNs / FCM）
+      description: |
+        API 只负责 upsert 登记 token；不因用户未开系统通知而失败。
+        iOS 用 APNs token，Android 用 FCM token。未开通知时客户端不崩溃，可进 App 做 in-app 提示。
+      operationId: registerDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDeviceRequest'
+      responses:
+        '200':
+          description: 已登记（upsert）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceToken'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+    delete:
+      tags: [Devices]
+      summary: 注销推送 device token
+      operationId: unregisterDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnregisterDeviceRequest'
+      responses:
+        '204':
+          description: 已注销
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      description: 上一页 next_cursor；首屏省略
+      schema:
+        type: string
+    PostId:
+      name: postId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UUID'
+
+  responses:
+    ErrorBadRequest:
+      description: 请求非法
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ErrorUnauthorized:
+      description: 未认证或 token 无效
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ErrorForbidden:
+      description: 无 space 或不属于该资源 space
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ErrorNotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ErrorConflict:
+      description: 冲突（已配对 / space 已满 / 邮箱已注册等）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    UUID:
+      type: string
+      format: uuid
+      example: "550e8400-e29b-41d4-a716-446655440000"
+
+    DateTime:
+      type: string
+      format: date-time
+      description: RFC3339 UTC
+      example: "2026-10-29T07:00:00Z"
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: 机器可读错误码
+          example: SPACE_FULL
+        message:
+          type: string
+          example: Couple space already has two members
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+
+    RegisterRequest:
+      type: object
+      description: 邮箱密码注册
+      required: [email, password, display_name]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 64
+
+    LoginRequest:
+      type: object
+      description: 邮箱密码登录
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+
+    AuthTokenResponse:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in, user]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          description: access_token 有效秒数
+          example: 3600
+        user:
+          $ref: '#/components/schemas/UserPublic'
+
+    UserPublic:
+      type: object
+      description: 公开用户信息；登录账号为 email（手机号 OTP 为 P1，本契约不含 phone）。
+      required: [id, email, display_name, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+    MeResponse:
+      type: object
+      required: [user, pairing]
+      properties:
+        user:
+          $ref: '#/components/schemas/UserPublic'
+        pairing:
+          type: object
+          required: [status]
+          properties:
+            status:
+              type: string
+              enum: [unpaired, pending_invite, paired]
+            space_id:
+              allOf:
+                - $ref: '#/components/schemas/UUID'
+              nullable: true
+            member_count:
+              type: integer
+              nullable: true
+              minimum: 0
+              maximum: 2
+
+    InviteResponse:
+      type: object
+      required: [invite_code, expires_at, space]
+      properties:
+        invite_code:
+          type: string
+          minLength: 6
+          maxLength: 6
+          pattern: '^[A-Z0-9]{6}$'
+          description: 6 位字母数字（大写），TTL 24h，一码一用
+          example: "A3K9M2"
+        expires_at:
+          $ref: '#/components/schemas/DateTime'
+        space:
+          $ref: '#/components/schemas/SpaceResponse'
+
+    AcceptInviteRequest:
+      type: object
+      required: [invite_code]
+      properties:
+        invite_code:
+          type: string
+          minLength: 6
+          maxLength: 6
+
+    SpaceMember:
+      type: object
+      required: [user_id, display_name, joined_at]
+      properties:
+        user_id:
+          $ref: '#/components/schemas/UUID'
+        display_name:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+        joined_at:
+          $ref: '#/components/schemas/DateTime'
+
+    SpaceResponse:
+      type: object
+      required: [id, member_count, members, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        member_count:
+          type: integer
+          minimum: 1
+          maximum: 2
+        members:
+          type: array
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/SpaceMember'
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+    MediaUploadRequest:
+      type: object
+      required: [content_type, byte_size]
+      properties:
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/heic, image/webp]
+        byte_size:
+          type: integer
+          minimum: 1
+          maximum: 10485760
+          description: 单张 ≤10MB
+
+    MediaUploadResponse:
+      type: object
+      required: [media_id, upload_url, upload_headers, expires_at]
+      properties:
+        media_id:
+          $ref: '#/components/schemas/UUID'
+        upload_url:
+          type: string
+          format: uri
+          description: 预签名 PUT/POST URL，客户端直传
+        upload_method:
+          type: string
+          enum: [PUT]
+          default: PUT
+        upload_headers:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            Content-Type: image/jpeg
+        expires_at:
+          $ref: '#/components/schemas/DateTime'
+
+    LocationInput:
+      type: object
+      description: 可选定位；不传或 null 表示无定位亦可发帖
+      nullable: true
+      required: [lat, lng]
+      properties:
+        lat:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        lng:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        name:
+          type: string
+          maxLength: 256
+          description: 展示名 / POI 名
+          nullable: true
+        place_id:
+          type: string
+          maxLength: 128
+          nullable: true
+        visibility:
+          $ref: '#/components/schemas/LocationVisibility'
+
+    LocationVisibility:
+      type: string
+      enum: [exact, city, hidden]
+      default: exact
+      description: |
+        默认 exact（完整：返回坐标 + 展示名/POI）。客户端发帖时可改。
+        city/hidden 为 P1 展示粒度；双方以存储值为准展示一致。
+
+    LocationView:
+      type: object
+      nullable: true
+      properties:
+        lat:
+          type: number
+          format: double
+          nullable: true
+        lng:
+          type: number
+          format: double
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        place_id:
+          type: string
+          nullable: true
+        visibility:
+          $ref: '#/components/schemas/LocationVisibility'
+
+    MediaRef:
+      type: object
+      required: [id, url, content_type, sort_order]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        url:
+          type: string
+          format: uri
+        content_type:
+          type: string
+        sort_order:
+          type: integer
+          minimum: 0
+          maximum: 8
+
+    CreatePostRequest:
+      type: object
+      description: |
+        仅图或仅文均可；**禁止双空**（body 去空白后为空且 media_ids 为空/缺省 → 400）。
+        实现层硬校验：`trim(body) != ""` OR `len(media_ids) >= 1`。
+      properties:
+        body:
+          type: string
+          maxLength: 5000
+          default: ""
+        media_ids:
+          type: array
+          maxItems: 9
+          items:
+            $ref: '#/components/schemas/UUID'
+          description: 最多 9 张，顺序即 sort_order
+        location:
+          $ref: '#/components/schemas/LocationInput'
+
+    UpdatePostRequest:
+      type: object
+      properties:
+        body:
+          type: string
+          maxLength: 5000
+        media_ids:
+          type: array
+          maxItems: 9
+          items:
+            $ref: '#/components/schemas/UUID'
+        location:
+          $ref: '#/components/schemas/LocationInput'
+
+    Post:
+      type: object
+      required: [id, space_id, author, body, media, like_count, liked_by_me, comment_count, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        space_id:
+          $ref: '#/components/schemas/UUID'
+        author:
+          $ref: '#/components/schemas/UserPublic'
+        body:
+          type: string
+        media:
+          type: array
+          maxItems: 9
+          items:
+            $ref: '#/components/schemas/MediaRef'
+        location:
+          $ref: '#/components/schemas/LocationView'
+        like_count:
+          type: integer
+          minimum: 0
+        liked_by_me:
+          type: boolean
+        comment_count:
+          type: integer
+          minimum: 0
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+        updated_at:
+          $ref: '#/components/schemas/DateTime'
+
+    PostListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Post'
+        next_cursor:
+          type: string
+          nullable: true
+
+    LikeStatus:
+      type: object
+      required: [post_id, liked_by_me, like_count]
+      properties:
+        post_id:
+          $ref: '#/components/schemas/UUID'
+        liked_by_me:
+          type: boolean
+        like_count:
+          type: integer
+          minimum: 0
+
+    CreateCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+
+    Comment:
+      type: object
+      required: [id, post_id, author, body, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        post_id:
+          $ref: '#/components/schemas/UUID'
+        author:
+          $ref: '#/components/schemas/UserPublic'
+        body:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+    CommentListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Comment'
+        next_cursor:
+          type: string
+          nullable: true
+
+    CreateCheckinRequest:
+      type: object
+      description: |
+        餐厅打卡。搜索无结果时可手填自定义店名：name 必填，place_id 可空。
+        服务端不强制校验外部 POI。
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 餐厅名；可来自搜索结果或手填自定义店名
+        address:
+          type: string
+          maxLength: 256
+          nullable: true
+        lat:
+          type: number
+          format: double
+          nullable: true
+        lng:
+          type: number
+          format: double
+          nullable: true
+        place_id:
+          type: string
+          maxLength: 128
+          nullable: true
+          description: 可选；手填店名时为空
+        checked_in_at:
+          allOf:
+            - $ref: '#/components/schemas/DateTime'
+          nullable: true
+          description: 省略则服务端 now()
+
+    RestaurantCheckin:
+      type: object
+      required: [id, space_id, creator, name, checked_in_at, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        space_id:
+          $ref: '#/components/schemas/UUID'
+        creator:
+          $ref: '#/components/schemas/UserPublic'
+        name:
+          type: string
+        address:
+          type: string
+          nullable: true
+        lat:
+          type: number
+          format: double
+          nullable: true
+        lng:
+          type: number
+          format: double
+          nullable: true
+        place_id:
+          type: string
+          nullable: true
+        checked_in_at:
+          $ref: '#/components/schemas/DateTime'
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+    CheckinListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestaurantCheckin'
+        next_cursor:
+          type: string
+          nullable: true
+
+    CreateFavoriteRequest:
+      type: object
+      description: P1；name 可手填；place_id 可空
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 可来自搜索或手填自定义店名
+        address:
+          type: string
+          maxLength: 256
+          nullable: true
+        lat:
+          type: number
+          format: double
+          nullable: true
+        lng:
+          type: number
+          format: double
+          nullable: true
+        place_id:
+          type: string
+          maxLength: 128
+          nullable: true
+        note:
+          type: string
+          maxLength: 512
+          nullable: true
+
+    RestaurantFavorite:
+      type: object
+      required: [id, space_id, creator, name, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        space_id:
+          $ref: '#/components/schemas/UUID'
+        creator:
+          $ref: '#/components/schemas/UserPublic'
+        name:
+          type: string
+        address:
+          type: string
+          nullable: true
+        lat:
+          type: number
+          format: double
+          nullable: true
+        lng:
+          type: number
+          format: double
+          nullable: true
+        place_id:
+          type: string
+          nullable: true
+        note:
+          type: string
+          nullable: true
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+    FavoriteListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestaurantFavorite'
+        next_cursor:
+          type: string
+          nullable: true
+
+    CreateAnniversaryRequest:
+      type: object
+      required: [title, event_date]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 128
+        event_date:
+          type: string
+          format: date
+          description: 纪念日日期 YYYY-MM-DD
+        recurrence:
+          type: string
+          enum: [yearly, once]
+          default: yearly
+        remind:
+          type: boolean
+          default: true
+        remind_days_before:
+          type: integer
+          minimum: 0
+          maximum: 30
+          default: 0
+          description: 0=当天
+        remind_local_time:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+          default: "09:00"
+          description: 本地提醒时刻；默认当天 09:00
+        timezone:
+          type: string
+          default: Asia/Shanghai
+          description: IANA 时区，用于换算推送
+
+    UpdateAnniversaryRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 128
+        event_date:
+          type: string
+          format: date
+        recurrence:
+          type: string
+          enum: [yearly, once]
+        remind:
+          type: boolean
+        remind_days_before:
+          type: integer
+          minimum: 0
+          maximum: 30
+        remind_local_time:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+        timezone:
+          type: string
+
+    Anniversary:
+      type: object
+      required:
+        - id
+        - space_id
+        - creator
+        - title
+        - event_date
+        - recurrence
+        - remind
+        - remind_days_before
+        - remind_local_time
+        - timezone
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        space_id:
+          $ref: '#/components/schemas/UUID'
+        creator:
+          $ref: '#/components/schemas/UserPublic'
+        title:
+          type: string
+        event_date:
+          type: string
+          format: date
+        recurrence:
+          type: string
+          enum: [yearly, once]
+        remind:
+          type: boolean
+        remind_days_before:
+          type: integer
+        remind_local_time:
+          type: string
+          example: "09:00"
+        timezone:
+          type: string
+          example: Asia/Shanghai
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+        updated_at:
+          $ref: '#/components/schemas/DateTime'
+
+    AnniversaryListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Anniversary'
+        next_cursor:
+          type: string
+          nullable: true
+
+    RegisterDeviceRequest:
+      type: object
+      required: [platform, token]
+      properties:
+        platform:
+          type: string
+          enum: [ios, android]
+        token:
+          type: string
+          minLength: 1
+          maxLength: 512
+
+    UnregisterDeviceRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+
+    DeviceToken:
+      type: object
+      required: [id, platform, token, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        platform:
+          type: string
+          enum: [ios, android]
+        token:
+          type: string
+        updated_at:
+          $ref: '#/components/schemas/DateTime'
