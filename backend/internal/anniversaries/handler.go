@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Liao-Jun-Tao/couple-daily/internal/apierr"
+	"github.com/Liao-Jun-Tao/couple-daily/internal/authz"
 	"github.com/Liao-Jun-Tao/couple-daily/internal/cursor"
 	"github.com/Liao-Jun-Tao/couple-daily/internal/httpapi"
 	"github.com/Liao-Jun-Tao/couple-daily/internal/present"
@@ -100,7 +101,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
-	_, spaceID, ok := web.RequireSpace(w, r, h.DB, apierr.ErrNotPaired)
+	uid, spaceID, ok := web.RequireSpace(w, r, h.DB, apierr.ErrNotPaired)
 	if !ok {
 		return
 	}
@@ -113,6 +114,12 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, err)
 		return
 	}
+	// Creator-only, including reminder fields. Reject before validating the body
+	// so a non-creator always gets 403 rather than a field error.
+	if !authz.AuthorOnly(uid, current.CreatorID) {
+		apierr.Write(w, apierr.ErrForbidden)
+		return
+	}
 	var req body
 	if err := httpapi.ReadJSON(w, r, &req); err != nil {
 		apierr.Write(w, apierr.Validation("invalid JSON body"))
@@ -123,7 +130,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, err)
 		return
 	}
-	updated, err := h.DB.UpdateAnniversary(r.Context(), spaceID, id, item)
+	updated, err := h.DB.UpdateAnniversary(r.Context(), spaceID, id, uid, item)
 	if err != nil {
 		apierr.Write(w, err)
 		return

@@ -6,7 +6,7 @@ info:
     情侣日常 App（couple-daily）后端接口契约。
     Flutter 双端；双人邀请制唯一 space；P0 + P1 字段预留。
     Auth（已确认）：邮箱+密码注册/登录；邀请码配对。手机号验证码不上首版（P1）。
-    已锁：仅作者可删、发帖禁止双空、发起邀请时建 space、APNs+FCM、
+    已锁：仅作者可删、纪念日 PATCH/DELETE 仅创建者（非创建者 403）、发帖禁止双空、发起邀请时建 space、APNs+FCM、
     邀请码 6 位/24h/一码一用、多图≤9/≤10MB、定位默认 exact、手填店名、纪念日当天本地 09:00。
     纪念日推送没有单独的公开发送接口：服务端按纪念日的 timezone + remind_local_time
     （默认 Asia/Shanghai 09:00）给该 space 双方已登记的 device token 投递。
@@ -35,7 +35,8 @@ tags:
       周年 recurrence=yearly，当天（remind_days_before=0），
       本地 09:00（remind_local_time），时区 Asia/Shanghai。
       推送时刻用纪念日上的 timezone，不是每个成员设备各自的时区；双方同一时刻触发。
-      仅创建者可删除。提醒投递见 AnniversaryPush，由进程内 worker 异步发送，没有对应的 HTTP 发送接口。
+      PATCH（含提醒字段）与 DELETE 都仅创建者可做；同 space 的非创建者返回 403 FORBIDDEN。
+      提醒投递见 AnniversaryPush，由进程内 worker 异步发送，没有对应的 HTTP 发送接口。真实 APNs/FCM 发送仍后置。
   - name: Devices
     description: |
       登记或注销当前用户的推送 token。platform 保持 ios | android（与现有客户端兼容）：
@@ -645,9 +646,11 @@ paths:
       tags: [Anniversaries]
       summary: 更新纪念日 / 提醒配置
       description: |
-        space 内任一成员可改标题、日期和提醒字段。省略的字段保持原值。
+        仅创建者可改标题、日期、重复规则和提醒字段（remind、remind_days_before、remind_local_time、timezone）。
+        同 space 的非创建者返回 403，code=FORBIDDEN（message 为 only the author can do that），字段保持原值。
+        创建者省略的字段保持原值。
         把 remind_local_time 改成空串，或 timezone 不合法，返回 400 VALIDATION_ERROR。
-        remind_days_before 允许 0–30。仅创建者可删除，更新不要求是创建者。
+        remind_days_before 允许 0–30。
       operationId: updateAnniversary
       requestBody:
         required: true
@@ -673,7 +676,7 @@ paths:
       tags: [Anniversaries]
       summary: 删除纪念日
       description: |
-        仅创建者可删。另一名成员删除返回 403，code=FORBIDDEN（message 为 only the author can do that）。
+        仅创建者可删，与 PATCH 同一规则。另一名成员删除返回 403，code=FORBIDDEN（message 为 only the author can do that）。
         创建者删除返回 204。已删除的纪念日不再参与提醒扫描。
       operationId: deleteAnniversary
       responses:

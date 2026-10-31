@@ -41,8 +41,16 @@ func (db *DB) CreateAnniversary(ctx context.Context, spaceID, creatorID string, 
 	return db.getAnniversary(ctx, spaceID, id)
 }
 
-// UpdateAnniversary replaces the editable fields. Any space member may update.
-func (db *DB) UpdateAnniversary(ctx context.Context, spaceID, id string, a Anniversary) (Anniversary, error) {
+// UpdateAnniversary replaces editable fields, including reminder settings.
+// Only the creator may update. Any other space member gets ErrForbidden.
+func (db *DB) UpdateAnniversary(ctx context.Context, spaceID, id, actorID string, a Anniversary) (Anniversary, error) {
+	current, err := db.getAnniversary(ctx, spaceID, id)
+	if err != nil {
+		return Anniversary{}, err
+	}
+	if !authz.AuthorOnly(actorID, current.CreatorID) {
+		return Anniversary{}, apierr.ErrForbidden
+	}
 	tag, err := db.Pool.Exec(ctx, `
 		UPDATE anniversaries SET
 			title = $3,
