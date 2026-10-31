@@ -11,10 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 class _DraftImage {
-  _DraftImage({
-    required this.bytes,
-    required this.contentType,
-  });
+  _DraftImage({required this.bytes, required this.contentType});
 
   final Uint8List bytes;
   final String contentType;
@@ -113,12 +110,15 @@ class _ComposePageState extends State<ComposePage> {
     });
   }
 
-  void _publish() {
+  Future<void> _publish() async {
     if (_busy) return;
     final session = SessionScope.read(context);
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
-      session.createPost(
+      await session.createPost(
         body: _body.text,
         media: [
           for (final image in _images)
@@ -229,7 +229,11 @@ class _ComposePageState extends State<ComposePage> {
           const SizedBox(height: 16),
           FilledButton(
             key: const Key('compose-submit'),
-            onPressed: _canPublish ? _publish : null,
+            onPressed: _canPublish
+                ? () async {
+                    await _publish();
+                  }
+                : null,
             child: const Text('发布'),
           ),
         ],

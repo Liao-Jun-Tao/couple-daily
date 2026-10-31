@@ -1,6 +1,5 @@
-/// Locked product limits for the in-memory mock. Real API enforcement
-/// lives in the backend contract; this client repeats them so the UI
-/// cannot bypass them while the network is unwired.
+/// Locked product limits. The API enforces the same rules. The UI
+/// repeats them so a request is not sent when it would be rejected.
 const int maxImagesPerPost = 9;
 const int maxImageBytes = 10485760;
 const int inviteCodeLength = 6;

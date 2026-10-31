@@ -61,10 +61,10 @@ class _AnniversaryFormPageState extends State<AnniversaryFormPage> {
     setState(() => _date = picked);
   }
 
-  void _save() {
+  Future<void> _save() async {
     final session = SessionScope.read(context);
     try {
-      final saved = session.saveAnniversary(
+      final saved = await session.saveAnniversary(
         id: widget.anniversaryId,
         title: _title.text,
         eventDate: formatDateOnly(_date),
@@ -73,9 +73,10 @@ class _AnniversaryFormPageState extends State<AnniversaryFormPage> {
       );
       if (!mounted) return;
       final message = saved.remind
-          ? '已保存。提醒登记为当天本地 ${saved.remindLocalTime}（${saved.timezone}，stub，未连接 APNs/FCM）。'
+          ? '已保存。提醒登记为当天本地 ${saved.remindLocalTime}（${saved.timezone}）。推送仍是 stub，未连接 APNs/FCM。'
           : '已保存，未开启提醒。';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
       Navigator.of(context).pop();
     } catch (error) {
       if (!mounted) return;
@@ -130,7 +131,7 @@ class _AnniversaryFormPageState extends State<AnniversaryFormPage> {
           ),
           Text(
             '提醒时间 $defaultRemindLocalTime（$defaultTimezone）。'
-            '首版只在当天提醒一次，不提前。这里只写入本地 stub。',
+            '首版只在当天提醒一次，不提前。推送仍是 stub，未连接 APNs/FCM。',
           ),
           if (_error != null) ...[
             const SizedBox(height: 12),
@@ -142,7 +143,9 @@ class _AnniversaryFormPageState extends State<AnniversaryFormPage> {
           const SizedBox(height: 16),
           FilledButton(
             key: const Key('anniversary-save'),
-            onPressed: _save,
+            onPressed: () async {
+              await _save();
+            },
             child: const Text('保存'),
           ),
         ],

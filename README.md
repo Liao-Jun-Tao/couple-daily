@@ -8,7 +8,7 @@
 |------|------|
 | `backend/` | Go API（chi）、PostgreSQL 迁移、本地 postgres / redis / minio |
 | `docs/` | 已锁定的接口契约、数据模型、自测与技术栈 |
-| `apps/mobile/` | Flutter 客户端脚手架（进程内 Mock，不接 API）。本轮演示优先 Android |
+| `apps/mobile/` | Flutter 客户端。默认接 `/v1`；`USE_MOCK=true` 仍走进程内 Mock |
 
 模块路径是 `github.com/Liao-Jun-Tao/couple-daily`。Go 源码在 `backend/`，不在仓库根目录。
 
@@ -69,4 +69,14 @@ go test ./...
 
 ## 客户端
 
-`apps/mobile` 是 Mock 壳，不调用 `backend/`。工程仍是 Flutter 双端。本轮演示优先 Android：`flutter pub get`，打开模拟器，`flutter devices`，再 `flutter run`（多设备时 `flutter run -d <emulator-id>`）。Debug 包：`flutter build apk --debug --split-per-abi`，例如 `adb install -r build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk`。演示图在 `docs/demo/`（widget 渲染，不是模拟器）。iOS 模拟器后置。细节见 `apps/mobile/README.md`。
+`apps/mobile` 默认请求真 API（`USE_MOCK` 默认 false）。先按上文把 API 跑在本机 `http://localhost:8080`，验收步骤见 `docs/self-test.md`。
+
+Android 模拟器访问宿主机用 `10.0.2.2`，这是默认基址 `http://10.0.2.2:8080/v1`。iOS 模拟器、以及 `adb reverse` 之后的 Android，用 `http://127.0.0.1:8080/v1`。真机用电脑的局域网地址。带图发帖时，预签名 URL 的主机是 MinIO 的 `localhost:9000`，签名里包含主机名，客户端不会改写；Android 模拟器需要 `adb reverse tcp:9000 tcp:9000`（API 同样 reverse 时把基址改成 `127.0.0.1`）。
+
+```bash
+cd apps/mobile
+flutter pub get
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080/v1
+```
+
+离线 Mock：`flutter run --dart-define=USE_MOCK=true`。细节、自测点击路径和已知限制见 `apps/mobile/README.md`。

@@ -1,14 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:couple_daily/core/errors/api_exception.dart';
 import 'package:couple_daily/core/format.dart';
 import 'package:couple_daily/core/models/models.dart';
 import 'package:couple_daily/core/session/session_scope.dart';
 import 'package:couple_daily/shared/widgets/empty_state.dart';
 import 'package:couple_daily/shared/widgets/confirm_delete_dialog.dart';
 
-class AnniversaryListPage extends StatelessWidget {
+class AnniversaryListPage extends StatefulWidget {
   const AnniversaryListPage({super.key});
+
+  @override
+  State<AnniversaryListPage> createState() => _AnniversaryListPageState();
+}
+
+class _AnniversaryListPageState extends State<AnniversaryListPage> {
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _reload();
+    });
+  }
+
+  Future<void> _reload() async {
+    try {
+      await SessionScope.read(context).refreshAnniversaries();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = messageOf(error));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,9 +50,10 @@ class AnniversaryListPage extends StatelessWidget {
         label: const Text('新建'),
       ),
       body: items.isEmpty
-          ? const EmptyState(
+          ? EmptyState(
               title: '还没有纪念日',
-              subtitle: '保存后会按当天本地 09:00 登记提醒。这是本地 stub，不会真的推送。',
+              subtitle:
+                  _error ?? '保存后会按当天本地 09:00（Asia/Shanghai）登记提醒。推送仍是 stub。',
             )
           : ListView.builder(
               padding: const EdgeInsets.only(bottom: 88),
@@ -54,7 +81,13 @@ class AnniversaryListPage extends StatelessWidget {
                               message: '只有作者可以删除自己的纪念日。',
                             );
                             if (!confirmed || !context.mounted) return;
-                            SessionScope.read(context).deleteAnniversary(item.id);
+                            try {
+                              await SessionScope.read(context)
+                                  .deleteAnniversary(item.id);
+                            } catch (error) {
+                              if (!context.mounted) return;
+                              setState(() => _error = messageOf(error));
+                            }
                           },
                           icon: const Icon(Icons.delete_outline),
                         )

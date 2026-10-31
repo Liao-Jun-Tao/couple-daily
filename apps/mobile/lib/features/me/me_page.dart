@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:couple_daily/core/errors/api_exception.dart';
 import 'package:couple_daily/core/notifications/notification_gateway.dart';
 import 'package:couple_daily/core/notifications/push_platform.dart';
 import 'package:couple_daily/core/session/session_scope.dart';
@@ -28,23 +29,22 @@ class _MePageState extends State<MePage> {
       }
       final platform = currentPushPlatform();
       try {
-        session.registerDevice(
+        await session.registerDevice(
           platform: platform,
           token: 'stub-$platform-$userId',
         );
-      } on Object {
+      } on Object catch (error) {
         if (!mounted) return;
         setState(() {
           _requesting = false;
-          _notice = '权限已同意，但 stub token 没有写入。应用会继续使用。';
+          _notice = '权限已同意，但设备没有登记成功。应用会继续使用。${messageOf(error)}';
         });
         return;
       }
       if (!mounted) return;
       setState(() {
         _requesting = false;
-        _notice =
-            '已同意。已登记 ${pushChannelName(platform)} stub token，尚未连接真实推送。';
+        _notice = '已同意。已登记 ${pushChannelName(platform)} stub token，尚未连接真实推送。';
       });
       return;
     }
@@ -68,17 +68,16 @@ class _MePageState extends State<MePage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text(user?.displayName ?? '未登录', style: theme.textTheme.headlineSmall),
+          Text(
+            user?.displayName ?? '未登录',
+            style: theme.textTheme.headlineSmall,
+          ),
           const SizedBox(height: 4),
           Text(user?.email ?? ''),
           const SizedBox(height: 16),
           Text('空间', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
-          Text(
-            space == null
-                ? '尚未配对'
-                : '已配对 · ${space.memberCount} 人',
-          ),
+          Text(space == null ? '尚未配对' : '已配对 · ${space.memberCount} 人'),
           for (final member in space?.members ?? const [])
             Text(member.displayName),
           const SizedBox(height: 24),
@@ -94,10 +93,7 @@ class _MePageState extends State<MePage> {
             onPressed: _requesting ? null : _requestNotifications,
             child: Text(_requesting ? '请求中…' : '请求通知权限'),
           ),
-          if (_notice != null) ...[
-            const SizedBox(height: 8),
-            Text(_notice!),
-          ],
+          if (_notice != null) ...[const SizedBox(height: 8), Text(_notice!)],
           for (final device in devices)
             Padding(
               padding: const EdgeInsets.only(top: 8),
@@ -108,7 +104,9 @@ class _MePageState extends State<MePage> {
             ),
           const SizedBox(height: 24),
           OutlinedButton(
-            onPressed: session.logout,
+            onPressed: () async {
+              await session.logout();
+            },
             child: const Text('退出登录'),
           ),
         ],

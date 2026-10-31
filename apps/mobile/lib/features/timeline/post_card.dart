@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:couple_daily/core/errors/api_exception.dart';
 import 'package:couple_daily/core/format.dart';
 import 'package:couple_daily/core/models/models.dart';
 import 'package:couple_daily/features/timeline/comment_sheet.dart';
@@ -17,9 +18,9 @@ class PostCard extends StatelessWidget {
 
   final Post post;
   final String viewerId;
-  final VoidCallback onLike;
-  final VoidCallback onUnlike;
-  final VoidCallback onDelete;
+  final Future<void> Function() onLike;
+  final Future<void> Function() onUnlike;
+  final Future<void> Function() onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -57,7 +58,8 @@ class PostCard extends StatelessWidget {
                         context,
                         message: '删除后对方也看不到这条动态。',
                       );
-                      if (confirmed) onDelete();
+                      if (!confirmed || !context.mounted) return;
+                      await _run(context, onDelete);
                     },
                     icon: const Icon(Icons.delete_outline),
                   ),
@@ -81,16 +83,7 @@ class PostCard extends StatelessWidget {
                 itemBuilder: (context, index) {
                   return ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.memory(
-                      post.media[index].bytes,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const ColoredBox(
-                          color: Color(0xFFEDE6E3),
-                          child: Icon(Icons.broken_image_outlined),
-                        );
-                      },
-                    ),
+                    child: _PostImage(media: post.media[index]),
                   );
                 },
               ),
@@ -107,7 +100,8 @@ class PostCard extends StatelessWidget {
               children: [
                 IconButton(
                   tooltip: post.likedByMe ? '取消赞' : '点赞',
-                  onPressed: post.likedByMe ? onUnlike : onLike,
+                  onPressed: () =>
+                      _run(context, post.likedByMe ? onUnlike : onLike),
                   icon: Icon(
                     post.likedByMe ? Icons.favorite : Icons.favorite_border,
                   ),
@@ -125,6 +119,46 @@ class PostCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+Future<void> _run(BuildContext context, Future<void> Function() action) async {
+  try {
+    await action();
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(messageOf(error))));
+  }
+}
+
+class _PostImage extends StatelessWidget {
+  const _PostImage({required this.media});
+
+  final MediaRef media;
+
+  @override
+  Widget build(BuildContext context) {
+    final broken = const ColoredBox(
+      color: Color(0xFFEDE6E3),
+      child: Icon(Icons.broken_image_outlined),
+    );
+    final url = media.url;
+    if (media.bytes.isNotEmpty) {
+      return Image.memory(
+        media.bytes,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => broken,
+      );
+    }
+    if (url != null && url.isNotEmpty) {
+      return Image.network(
+        url,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => broken,
+      );
+    }
+    return broken;
   }
 }
 

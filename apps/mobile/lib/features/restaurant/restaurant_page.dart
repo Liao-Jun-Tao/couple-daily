@@ -20,33 +20,55 @@ class _RestaurantPageState extends State<RestaurantPage> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _reload();
+    });
+  }
+
+  Future<void> _reload() async {
+    try {
+      await SessionScope.read(context).refreshCheckins();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = messageOf(error));
+    }
+  }
+
+  @override
   void dispose() {
     _query.dispose();
     _manualName.dispose();
     super.dispose();
   }
 
-  void _checkInPlace(RestaurantPlace place) {
+  Future<void> _checkInPlace(RestaurantPlace place) async {
     try {
-      SessionScope.read(context).createCheckin(
+      await SessionScope.read(context).createCheckin(
         name: place.name,
         address: place.address,
         lat: place.lat,
         lng: place.lng,
         placeId: place.placeId,
       );
+      if (!mounted) return;
       setState(() => _error = null);
     } catch (error) {
+      if (!mounted) return;
       setState(() => _error = messageOf(error));
     }
   }
 
-  void _checkInManual() {
+  Future<void> _checkInManual() async {
     try {
-      SessionScope.read(context).createCheckin(name: _manualName.text);
+      await SessionScope.read(context).createCheckin(name: _manualName.text);
       _manualName.clear();
+      if (!mounted) return;
       setState(() => _error = null);
     } catch (error) {
+      if (!mounted) return;
       setState(() => _error = messageOf(error));
     }
   }
@@ -92,10 +114,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
           ),
           const SizedBox(height: 12),
           if (queryEmpty)
-            Text(
-              '试试搜索，或从下面的店打卡',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            Text('试试搜索，或从下面的店打卡', style: Theme.of(context).textTheme.bodySmall),
           if (showManual) ...[
             Text(
               '没有搜到这家店，可以手填店名打卡。店名必填，可以不填 place id。',
@@ -110,21 +129,28 @@ class _RestaurantPageState extends State<RestaurantPage> {
             const SizedBox(height: 8),
             FilledButton(
               key: const Key('manual-checkin'),
-              onPressed: _checkInManual,
+              onPressed: () async {
+                await _checkInManual();
+              },
               child: const Text('用手填店名打卡'),
             ),
-          ]           else
+          ] else
             for (final place in results)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(place.name, style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      place.name,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                     Text(place.address),
                     const SizedBox(height: 8),
                     FilledButton(
-                      onPressed: () => _checkInPlace(place),
+                      onPressed: () async {
+                        await _checkInPlace(place);
+                      },
                       child: const Text('打卡'),
                     ),
                   ],
@@ -165,7 +191,13 @@ class _RestaurantPageState extends State<RestaurantPage> {
                             message: '只有作者可以删除自己的打卡。',
                           );
                           if (!confirmed || !context.mounted) return;
-                          SessionScope.read(context).deleteCheckin(checkin.id);
+                          try {
+                            await SessionScope.read(context)
+                                .deleteCheckin(checkin.id);
+                          } catch (error) {
+                            if (!context.mounted) return;
+                            setState(() => _error = messageOf(error));
+                          }
                         },
                         icon: const Icon(Icons.delete_outline),
                       )

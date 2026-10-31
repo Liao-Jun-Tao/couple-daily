@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:couple_daily/app.dart';
@@ -20,6 +19,7 @@ void main() {
   const shotDir = '/workspace/docs/demo';
 
   setUpAll(() async {
+    if (!_cjkFontReady) return;
     final bytes = File('/tmp/NotoSansSC-Regular.otf').readAsBytesSync();
     final data = ByteData.view(
       bytes.buffer,
@@ -40,9 +40,12 @@ void main() {
   testWidgets('auth and invite', (tester) async {
     await phone(tester);
     await tester.pumpWidget(
-      const RepaintBoundary(
-        key: Key('shot'),
-        child: CoupleDailyApp(key: Key('auth-app')),
+      RepaintBoundary(
+        key: const Key('shot'),
+        child: CoupleDailyApp(
+          key: const Key('auth-app'),
+          session: AppSession(useMock: true),
+        ),
       ),
     );
     await tester.pump();
@@ -53,7 +56,10 @@ void main() {
     await tester.tap(find.text('注册'));
     await tester.pump(const Duration(milliseconds: 300));
     await tester.enterText(find.byKey(const Key('auth-name')), '甲');
-    await tester.enterText(find.byKey(const Key('auth-email')), 'a@example.com');
+    await tester.enterText(
+      find.byKey(const Key('auth-email')),
+      'a@example.com',
+    );
     await tester.enterText(find.byKey(const Key('auth-password')), 'password1');
     await tester.tap(find.byKey(const Key('auth-submit')));
     await tester.pump(const Duration(milliseconds: 500));

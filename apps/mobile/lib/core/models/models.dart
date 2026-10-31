@@ -129,10 +129,12 @@ class MediaRef {
     required this.bytes,
     required this.contentType,
     required this.sortOrder,
+    this.url,
   });
 
   final String id;
   final Uint8List bytes;
+  final String? url;
   final String contentType;
   final int sortOrder;
 }

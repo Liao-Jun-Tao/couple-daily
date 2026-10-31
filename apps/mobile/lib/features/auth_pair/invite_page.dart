@@ -18,6 +18,7 @@ class InvitePage extends StatefulWidget {
 class _InvitePageState extends State<InvitePage> {
   final _code = TextEditingController();
   String? _error;
+  bool _busy = false;
 
   @override
   void dispose() {
@@ -30,24 +31,41 @@ class _InvitePageState extends State<InvitePage> {
     return !DateTime.now().toUtc().isBefore(expiresAt.toUtc());
   }
 
-  void _createInvite() {
+  Future<void> _createInvite() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
-      SessionScope.read(context).createInvite();
-      if (!mounted) return;
-      setState(() => _error = null);
+      await SessionScope.read(context).createInvite();
     } catch (error) {
       if (!mounted) return;
-      setState(() => _error = messageOf(error));
+      setState(() {
+        _busy = false;
+        _error = messageOf(error);
+      });
+      return;
     }
+    if (!mounted) return;
+    setState(() => _busy = false);
   }
 
   Future<void> _accept() async {
+    if (_busy) return;
     final session = SessionScope.read(context);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
-      session.acceptInvite(_code.text);
+      await session.acceptInvite(_code.text);
     } catch (error) {
       if (!mounted) return;
-      setState(() => _error = messageOf(error));
+      setState(() {
+        _busy = false;
+        _error = messageOf(error);
+      });
       return;
     }
     if (!mounted) return;
@@ -57,9 +75,8 @@ class _InvitePageState extends State<InvitePage> {
   Future<void> _copy(String code) async {
     await Clipboard.setData(ClipboardData(text: code));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('邀请码已复制')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('邀请码已复制')));
   }
 
   @override
@@ -76,7 +93,9 @@ class _InvitePageState extends State<InvitePage> {
         title: const Text('配对'),
         actions: [
           TextButton(
-            onPressed: session.logout,
+            onPressed: () async {
+              await session.logout();
+            },
             child: const Text('退出登录'),
           ),
         ],
@@ -91,7 +110,9 @@ class _InvitePageState extends State<InvitePage> {
           ),
           const SizedBox(height: 8),
           Text(
-            '同一台手机演示：生成邀请码后退出，换一个邮箱注册再接受。数据只留在这次运行里。',
+            session.useMock
+                ? '同一台手机演示：生成邀请码后退出，换一个邮箱注册再接受。数据只留在这次运行里。'
+                : '同一台手机可以退出后换一个邮箱注册再接受。邀请码存在服务端，本机也会记住方便复制。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -120,19 +141,35 @@ class _InvitePageState extends State<InvitePage> {
               onPressed: () => _copy(code),
               child: const Text('复制邀请码'),
             ),
-            if (expired) ...[
+            if (expired && session.useMock) ...[
               const SizedBox(height: 8),
               FilledButton(
-                onPressed: _createInvite,
+                onPressed: _busy
+                    ? null
+                    : () async {
+                        await _createInvite();
+                      },
                 child: const Text('重新生成'),
               ),
             ],
+            if (expired && !session.useMock) ...[
+              const SizedBox(height: 8),
+              const Text('邀请码已过期。你仍在这个空间里时，服务端不会再发一个新码。'),
+            ],
+          ] else if (pending) ...[
+            Text('邀请已发出', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            const Text('这台设备没有留下邀请码。请使用你之前复制的 6 位码。服务端不会再次返回同一码。'),
           ] else ...[
             Text('发起邀请', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             FilledButton(
-              onPressed: _createInvite,
-              child: const Text('生成邀请码'),
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      await _createInvite();
+                    },
+              child: Text(_busy ? '请稍候…' : '生成邀请码'),
             ),
             const SizedBox(height: 28),
             Text('接受邀请', style: theme.textTheme.titleMedium),
@@ -150,8 +187,12 @@ class _InvitePageState extends State<InvitePage> {
             const SizedBox(height: 12),
             FilledButton(
               key: const Key('invite-accept'),
-              onPressed: _accept,
-              child: const Text('接受邀请'),
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      await _accept();
+                    },
+              child: Text(_busy ? '请稍候…' : '接受邀请'),
             ),
           ],
           if (_error != null) ...[
