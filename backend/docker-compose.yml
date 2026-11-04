@@ -1,3 +1,4 @@
+# Local dependencies only (postgres, redis, minio). The API is not a service here; see DEPLOY.md.
 name: couple-daily
 
 services:
